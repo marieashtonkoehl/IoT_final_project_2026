@@ -1,0 +1,27 @@
+# Secrets — never commit
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Data / logs / models produced at runtime
+*.log
+logs/
+data/*.csv
+*.joblib
+
+# Docker volumes
+deploy/influxdb-data/
+deploy/grafana-data/
+deploy/mosquitto-data/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
