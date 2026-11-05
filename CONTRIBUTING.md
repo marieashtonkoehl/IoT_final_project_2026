@@ -1,10 +1,10 @@
-# How we work in this repo
+# Repo working guide
 
 This is our team's shared guide to the repository: how work is planned, where code goes, and how a change gets from someone's laptop into the project. Keep it open while working; if something here is unclear or out of date, fix it in a pull request.
 
 ---
 
-## 1. The big picture in one minute
+## 1. Overview
 
 Think of the project like a shared kitchen:
 
