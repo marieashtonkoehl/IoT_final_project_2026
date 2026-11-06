@@ -7,6 +7,19 @@ Team: Elisa Caldini · Hannah Kleutgens · Marie Sophie Köhl
 
 > Status: **Sprint 1 — in progress.** This README describes the planned system; sections marked *(planned)* will be filled in as the code lands.
 
+> **🔓 Open decisions — see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58)**
+> The team has not yet chosen the tools for these parts, so this README describes them in general terms:
+> - web framework for the API
+> - time-series database + dashboard tool
+> - where the database and dashboard run (on the Pi, on a laptop, or a mix)
+> - Docker containers or direct installation
+> - second communication protocol besides REST/HTTP
+> - how programs auto-start on the Pi
+> - map library for the web page
+> - alert channel
+>
+> This README will be updated once the team decides.
+
 ---
 
 ## What it does
@@ -23,27 +36,38 @@ Every press is stored together with the conditions at that moment — temperatur
 ## System overview
 
 ```
- ┌──────────────── Raspberry Pi 5 (station) ────────────────┐
- │                                                          │
- │  Sensors ──► device/ (sensor script) ──REST/JSON──► backend/ (FastAPI)
- │  Actuators ◄──────────── progress / unlock ◄──────────────┤
- │                     │                                    │      │
- │                     └──MQTT (status, Pi health)──► Mosquitto    ▼
- │                                                          │  InfluxDB ──► Grafana (partners)
- │                                                          │      │
- │                                                          │      └────► frontend/ (web page + map)
- └──────────────────────────────────────────────────────────┘
-          ▲ external data: weather (Euskalmet / Open-Meteo), air quality (Open Data Euskadi),
-            Bilbao parks & green spaces (open data)
+ ┌──────────────────────── Raspberry Pi 5 (station) ────────────────────────┐
+ │                                                                          │
+ │  ┌─────────┐      ┌───────────────┐   REST/JSON   ┌───────────────────┐  │
+ │  │ Sensors │ ───► │ Device script │ ────────────► │        API        │  │
+ │  └─────────┘      │   (device/)   │               │    (backend/)     │  │
+ │  ┌───────────┐    │               │ ◄──────────── │                   │  │
+ │  │ Actuators │ ◄─ │               │ progress /    └─────────┬─────────┘  │
+ │  └───────────┘    └───────┬───────┘ unlock                  │            │
+ │                           │ status, Pi health               ▼            │
+ │                           ▼                       ┌───────────────────┐  │
+ │              ┌──────────────────────────┐         │     Database      │  │
+ │              │ Message broker           │         └────┬─────────┬────┘  │
+ │              │ (optional, 2nd protocol) │              │         │       │
+ │              └──────────────────────────┘              ▼         ▼       │
+ │                                              ┌───────────┐ ┌──────────┐  │
+ │                                              │ Dashboard │ │ Web page │  │
+ │                                              │(partners) │ │(frontend)│  │
+ │                                              └───────────┘ └──────────┘  │
+ └──────────────────────────────────────────────────────────────────────────┘
+   ▲ external data: weather (Euskalmet / Open-Meteo), air quality (Open Data Euskadi),
+     Bilbao parks & green spaces (open data)
 ```
+
+Where the database and dashboard run (Pi or laptop) is still open — see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58).
 
 Three parts:
 
 | Part | Folder | Role |
 |---|---|---|
-| **Device script** | `device/` | Reads all sensors, drives LED bar / servo / buzzer, sends each press to the API, publishes status over MQTT |
-| **Back end** | `backend/` | REST API (FastAPI, auto-generated OpenAPI docs), cooldown + daily cap rules, storage in InfluxDB, external APIs, alerts, analytics |
-| **Front end** | `frontend/` + `dashboards/` | Web page (progress, conditions, map of green spaces) and Grafana dashboards for partners |
+| **Device script** | `device/` | Reads all sensors, drives LED bar / servo / buzzer, sends each press to the API, sends status over a second communication protocol |
+| **Back end** | `backend/` | REST API (documented with OpenAPI), cooldown + daily cap rules, storage in the time-series database, external APIs, alerts, analytics |
+| **Front end** | `frontend/` + `dashboards/` | Web page (progress, conditions, map of green spaces) and dashboards for partners |
 
 ## Hardware
 
@@ -91,19 +115,19 @@ The dashboards show this data in several ways *(planned)*: presses per day and p
 ```
 device/            Sensor + actuator script for the Raspberry Pi
   tests/           One small test script per sensor / actuator
-backend/app/       FastAPI application (API, rules, storage, external APIs)
+backend/app/       API application (API, rules, storage, external APIs)
 frontend/          Web page (status, progress, map)
-dashboards/grafana Exported Grafana dashboards (JSON)
-deploy/            systemd services, docker-compose, Mosquitto config
+dashboards/        Exported dashboard files from the dashboard tool
+deploy/            Setup files for running the station on the Pi (database, dashboard, auto-start)
 docs/              Architecture, data model, diagrams
-scripts/           Helper scripts (e.g. GitHub setup, Pi status)
+scripts/           Helper scripts around the project (e.g. Pi status report)
 ```
 
 How we work with branches, issues, pull requests and the board → **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## Deployment *(planned)*
 
-Everything runs on one Raspberry Pi 5 for the MVP. At the university, run the MQTT broker locally (outbound MQTT ports are closed on the campus network).
+Everything runs on one Raspberry Pi 5 for the MVP. Some steps depend on tools the team has not chosen yet; they say **(depends on #58)**.
 
 ### 1. Get the code onto the Pi
 
@@ -120,7 +144,7 @@ Uses the Grove library set up in Lab 4 (RPi.GPIO does not work on the Pi 5 — w
 ```bash
 python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt     # package list not added yet
 ```
 
 ### 3. Secrets and settings
@@ -130,38 +154,25 @@ cp .env.example .env
 nano .env        # fill in tokens, cooldown, daily cap, target
 ```
 
-`.env` is in `.gitignore` and must **never** be committed — the repository is public.
+`.env` is in `.gitignore` and must **never** be committed — the repository is public. More in [CONTRIBUTING.md § 8](CONTRIBUTING.md#8-secrets-and-settings).
 
-### 4. Database, dashboard and MQTT broker
+### 4. Database and dashboard
 
-```bash
-cd deploy
-docker compose up -d     # InfluxDB, Grafana, Mosquitto
-```
+Set up the time-series database and the dashboard tool (and a message broker, if the second protocol needs one). **(depends on #58)** — which tools, where they run, and whether with Docker or a direct install.
 
-(Alternative without Docker: install InfluxDB, Grafana and Mosquitto with `apt` as in the final lab.)
+Note: the campus network blocks some outbound ports, so a message broker should run locally on the station.
 
-### 5. Start the services
+### 5. Start the programs so they run after a reboot
 
-```bash
-sudo cp deploy/systemd/*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now pollinator-api pollinator-device
-```
-
-Both services restart automatically after a reboot. Logs:
-
-```bash
-journalctl -u pollinator-device -f
-```
+Start the API and the device script, and set them up to start automatically when the Pi boots. **(depends on #58)**
 
 ### 6. Open it
 
 | What | Address |
 |---|---|
-| Web page | `http://<pi-hostname>.local:8000/` |
-| API docs (OpenAPI) | `http://<pi-hostname>.local:8000/docs` |
-| Grafana | `http://<pi-hostname>.local:3000/` |
+| Web page | `http://<pi-hostname>.local:8000/` *(port may change)* |
+| API docs (OpenAPI) | address depends on the web framework **(depends on #58)** |
+| Dashboard | address depends on the dashboard tool **(depends on #58)** |
 
 ### Scaling beyond the MVP
 

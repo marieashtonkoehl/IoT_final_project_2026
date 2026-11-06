@@ -38,22 +38,22 @@ Pick an issue → make a branch → commit → push → open a PR → teammate r
 
 Each sprint is a **milestone** on GitHub. An issue in the milestone "Sprint 2" is planned for Sprint 2.
 
-⚠️ The instructor follows the **commit history** — small, regular commits from everyone count more than a big push in the last week. Commits after the `v1.0` tag on 11 Dec are not graded.
+⚠️ The instructor follows the **commit history**: small, regular commits from everyone count more than a big push in the last week. Commits after the `v1.0` tag on 11 Dec are not graded.
 
 ---
 
-## 3. Issues — what to work on
+## 3. Issues:  what to work on
 
 ### Reading an issue
 
 Every issue has:
 
-- **Title** — what to do, short.
-- **Description** — the goal and a **"Done when"** checklist. When every box is ticked, the issue is finished.
-- **Labels** — coloured tags that say *what kind* of work it is (see below).
-- **Milestone** — which sprint it belongs to.
-- **Assignee** — who is doing it. One person per issue.
-- **"Part of #n"** — the user story it helps to deliver.
+- **Title**: what to do, short.
+- **Description**: the goal and a **"Done when"** checklist. When every box is ticked, the issue is finished.
+- **Labels**: coloured tags that say *what kind* of work it is (see below).
+- **Milestone**: which sprint it belongs to.
+- **Assignee**: who is doing it. One person per issue.
+- **"Part of #n"**: the user story it helps to deliver.
 
 ### Labels
 
@@ -63,8 +63,8 @@ Every issue has:
 | `device` | Code that runs on the Raspberry Pi and talks to sensors/actuators (`device/`) |
 | `backend` | The API, rules, database writes, external APIs (`backend/`) |
 | `frontend` | The web page and the map (`frontend/`) |
-| `data` | Database, Grafana dashboards, analytics |
-| `infra` | Setup work: repo, board, Docker, systemd services, release |
+| `data` | Database, dashboards, analytics |
+| `infra` | Setup work: repo, board, deployment and auto-start setup, release |
 | `documentation` | README, wiki, diagrams, reports |
 | `test` | Trying out hardware or checking that something works |
 | `bug` | Something that used to work or should work, but doesn't |
@@ -91,9 +91,9 @@ The board is at **Projects** (top of the repo) → *Pollinator Station*, or dire
 
 Views (tabs at the top of the board):
 
-- **Board** — all cards by status
-- **Sprints** — table grouped by milestone (one sprint at a time)
-- **My tasks** — only the cards assigned to you
+- **Board**: all cards by status
+- **Sprints**: table grouped by milestone (one sprint at a time)
+- **My tasks**: only the cards assigned to you
 
 | Column | Meaning | Who moves it |
 |---|---|---|
@@ -239,13 +239,95 @@ The issue closes and the card moves to **Done**. 🎉
 
 ## 8. Secrets and settings
 
-- Passwords, tokens and API keys go in a file called **`.env`** — never in the code.
-- `.env` is listed in `.gitignore`, so git ignores it.
-- `.env.example` shows which settings exist, **without** real values. When you add a new setting, add it there too.
+Our code needs some private values: passwords, tokens, API keys. It also needs settings like the cooldown time. These live in a file called **`.env`**, never in the code.
+
+### Two files: `.env.example` and `.env`
+
+| File | On GitHub? | What is in it |
+|---|---|---|
+| **`.env.example`** | ✅ Yes | A **template**. It lists every setting the code needs, but **no real values**. |
+| **`.env`** | ❌ **Never** | The **real values**: passwords, tokens, API keys and settings. |
+
+Why is `.env` never uploaded? Our repo is **public** — anyone on the internet can read it. So `.env` is listed in `.gitignore`. That tells git to ignore the file: it will not be committed or pushed.
+
+### Who needs a `.env`?
+
+Every computer that **runs** the code needs its own `.env`:
+
+- **The Raspberry Pi** — always. This is where the station runs.
+- **A laptop** — only if you run parts of the system there.
+
+If you only write code on your laptop and run it on the Pi, the `.env` on the Pi is the one that counts.
+
+### Create your `.env`, step by step
+
+1. Go into the repo folder.
+2. Copy the template:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Open `.env` (e.g. `nano .env`) and fill in the real values after each `=`.
+4. Save and close.
+
+**On the Pi**, you do this on the Pi itself: connect with SSH first (`ssh <user>@<pi-hostname>.local`), then run the steps above.
+
+Already have a filled-in `.env` on your laptop? git does not carry `.env` (it is ignored), so `git pull` on the Pi won't bring it. You can copy it over yourself:
+
+```bash
+scp .env <user>@<pi-hostname>.local:~/IoT_final_project_2026/.env
+```
+
+(`scp` = "secure copy": it copies a file over SSH. Run it on your laptop, inside the repo folder.)
+
+### Sharing real values
+
+Share passwords and tokens with teammates **privately**, e.g. in a direct message. Never put them in issues, commits, PR descriptions or screenshots in the repo.
+
+### Adding a new setting
+
+1. Add the new setting to **`.env.example`**, **without** a real value, in the **same PR** as the code that uses it.
+2. Tell the team, so everyone adds it to their own `.env`.
+
+### If a secret is committed by accident
+
+**Regenerate it immediately** (make a new password/token and stop using the old one), then tell the team. Deleting the commit is not enough — on a public repo someone may already have seen it.
 
 ---
 
-## 9. Code style (short)
+## 9. Repository folders
+
+Where things go:
+
+| Folder | What goes in it |
+|---|---|
+| `device/` | The script that runs on the Raspberry Pi: reads the sensors, drives the LED bar, servo and buzzer |
+| `device/tests/` | One small test script per sensor / actuator |
+| `backend/` | Things *about* the server: its README, the list of Python packages it needs, tests |
+| `backend/app/` | The server code itself: API, rules, storage, external APIs |
+| `frontend/` | The web page (progress, conditions, map) |
+| `dashboards/` | Exported dashboard files from the dashboard tool, so they can be imported again |
+| `deploy/` | Setup files and instructions for running the station on the Pi |
+| `docs/` | Architecture, data model, diagrams |
+| `scripts/` | Helper scripts around the project (e.g. Pi status report) |
+| `.github/` | GitHub settings: issue templates and the pull request template |
+
+### About `deploy/`
+
+`deploy/` holds the setup files and instructions for running the station **on the Raspberry Pi**. For example: the configuration for the database, dashboard and message broker, and the files that make our programs start automatically when the Pi boots.
+
+You use these files **on the Pi**, after cloning the repo there. A laptop only needs VS Code, SSH and a browser — unless the team decides to run some services on a laptop (see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58)).
+
+### What is `.gitkeep`?
+
+git does not save **empty folders**. So if a folder has no files yet, it would not show up on GitHub.
+
+The fix: put an empty file called **`.gitkeep`** in it. It is only a placeholder that makes the folder appear on GitHub — it has no other purpose. Once a real file is in the folder, delete the `.gitkeep`.
+
+---
+
+## 10. Code style (short)
 
 - Python: clear names (`soil_moisture_pct`, not `sm`), a docstring at the top of each file, comments for anything non-obvious.
 - One sensor or actuator → one small, testable function.
@@ -254,7 +336,7 @@ The issue closes and the card moves to **Done**. 🎉
 
 ---
 
-## 10. Checklist before a Sprint Review
+## 11. Checklist before a Sprint Review
 
 - [ ] All issues for the sprint are on the board and in the right column
 - [ ] Everything finished is merged into `main`

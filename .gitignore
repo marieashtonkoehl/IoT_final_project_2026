@@ -16,10 +16,8 @@ logs/
 data/*.csv
 *.joblib
 
-# Docker volumes
-deploy/influxdb-data/
-deploy/grafana-data/
-deploy/mosquitto-data/
+# Local database/dashboard data
+deploy/data/
 
 # OS / editor
 .DS_Store
