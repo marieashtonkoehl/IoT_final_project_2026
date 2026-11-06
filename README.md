@@ -8,7 +8,7 @@ Team: Elisa Caldini · Hannah Kleutgens · Marie Sophie Köhl
 > Status: **Sprint 1 — in progress.** This README describes the planned system; sections marked *(planned)* will be filled in as the code lands.
 
 > **🔓 Open decisions — see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58)**
-> The team has not yet chosen the tools for these parts, so this README describes them in general terms:
+> We have not yet chosen the final tools for these parts, so this README describes them in general terms:
 > - web framework for the API
 > - time-series database + dashboard tool
 > - where the database and dashboard run (on the Pi, on a laptop, or a mix)
@@ -18,7 +18,7 @@ Team: Elisa Caldini · Hannah Kleutgens · Marie Sophie Köhl
 > - map library for the web page
 > - alert channel
 >
-> This README will be updated once the team decides.
+> This README will be updated once we decide.
 
 ---
 
@@ -29,9 +29,9 @@ Each press lights one more segment of an LED bar. When the bar is full, a small 
 
 Every press is stored together with the conditions at that moment — temperature, humidity, light, UV, air pressure, soil moisture, gas and air quality, and how many people walked past. Over time the data shows *when* and *in what conditions* people notice pollinators, and whether the planting helps.
 
-- **No app, no account, no screen** — one button, LEDs and printed info panels.
-- **Fair use** — a cooldown between presses and a daily cap stop one person from emptying the lockers.
-- **Privacy** — no camera or microphone; the motion sensor only counts movements.
+- **No app, no account, no screen**: one button, LEDs and printed info panels.
+- **Fair use**: a cooldown between presses and a daily cap stop one person from emptying the lockers.
+- **Privacy**: no camera or microphone; the motion sensor only counts movements.
 
 ## System overview
 
@@ -139,7 +139,7 @@ cd IoT_final_project_2026
 
 ### 2. Python environment
 
-Uses the Grove library set up in Lab 4 (RPi.GPIO does not work on the Pi 5 — we use the Grove library / gpiozero).
+Uses the Grove library set up in Lab 4 ( Grove library / gpiozero).
 
 ```bash
 python3 -m venv --system-site-packages .venv
@@ -154,11 +154,11 @@ cp .env.example .env
 nano .env        # fill in tokens, cooldown, daily cap, target
 ```
 
-`.env` is in `.gitignore` and must **never** be committed — the repository is public. More in [CONTRIBUTING.md § 8](CONTRIBUTING.md#8-secrets-and-settings).
+`.env` is in `.gitignore` and must **never** be committed, the repository is public. More in [CONTRIBUTING.md § 8](CONTRIBUTING.md#8-secrets-and-settings).
 
 ### 4. Database and dashboard
 
-Set up the time-series database and the dashboard tool (and a message broker, if the second protocol needs one). **(depends on #58)** — which tools, where they run, and whether with Docker or a direct install.
+Set up the time-series database and the dashboard tool (and a message broker, if the second protocol needs one). **(depends on #58)** which tools, where they run, and whether with Docker or a direct install.
 
 Note: the campus network blocks some outbound ports, so a message broker should run locally on the station.
 
