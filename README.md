@@ -1,13 +1,13 @@
-# 🐝 The Pollinator Station
+# The Pollinator Station
 
 **A sighting becomes a plant.**
 IoT Final Project · ADIoT 2026-27 · University of Deusto · Theme: *IoT for Reconnecting with Nature*
 
 Team: Elisa Caldini · Hannah Kleutgens · Marie Sophie Köhl
 
-> Status: **Sprint 1 — in progress.** This README describes the planned system; sections marked *(planned)* will be filled in as the code lands.
+> Status: **Sprint 1: in progress.** This README describes the planned system; sections marked *(planned)* will be filled in as the code lands.
 
-> **🔓 Open decisions — see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58)**
+> **🔓 Open decisions: see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58)**
 > We have not yet chosen the final tools for these parts, so this README describes them in general terms:
 > - web framework for the API
 > - time-series database + dashboard tool
