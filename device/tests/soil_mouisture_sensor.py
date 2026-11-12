@@ -1,134 +1,87 @@
-"""Barometer test (BME280)
-Finds the sensor on the I2C bus, reads temperature and air pressure every
-second and prints them with a qualitative pressure level.
+"""Soil moisture sensor test
+ 
+Reads the sensor every second and prints the raw ADC value, the voltage,
+the moisture in % and a qualitative level (dry / moist / wet).
+ 
+Calibration: run it once with the probe in the air (dry) and once in a
+glass of water (wet), note the raw values and pass them with --dry / --wet,
+or write them into DEFAULT_DRY / DEFAULT_WET below. The percentage formula
+works whether the raw value goes up or down when the soil gets wetter.
 """
-
 import argparse
-import struct
 import time
  
-from smbus2 import SMBus
+from grove.adc import ADC  # same library as in Lab 4 (HAT address fixed to 0x08)
  
-I2C_BUS = 1                        # /dev/i2c-1 on the Raspberry Pi
-CANDIDATE_ADDRESSES = (0x77, 0x76)  # the Grove module uses 0x77 by default
-CHIP_IDS = {0x60: "BME280"}
- 
-REG_ID = 0xD0
-REG_CALIBRATION = 0x88   # 24 bytes of calibration data
-REG_CTRL_MEAS = 0xF4
-REG_CONFIG = 0xF5
-REG_DATA = 0xF7          # 6 bytes: pressure (3) then temperature (3)
- 
-# Typical range of sea-level pressure on Earth, used as a sanity check.
-PRESSURE_MIN_HPA = 300
-PRESSURE_MAX_HPA = 1100
- 
-def find_sensor(bus, forced_address=None):
-    """Return (address, chip name) of the first BMP280/BME280 found."""
-    addresses = (forced_address,) if forced_address else CANDIDATE_ADDRESSES
-    for address in addresses:
-        try:
-            chip_id = bus.read_byte_data(address, REG_ID)
-        except OSError:
-            continue  # nobody answers at this address
-        if chip_id in CHIP_IDS:
-            return address, CHIP_IDS[chip_id]
-    return None, None
+DEFAULT_CHANNEL = 2   # analog port A2 on the Grove Base HAT (adjust to your wiring)
+DEFAULT_DRY = 3000    # PLACEHOLDER: raw value with the probe in air -> calibrate
+DEFAULT_WET = 1200    # PLACEHOLDER: raw value with the probe in water -> calibrate
+ADC_MAX = 4095        # the HAT ADC is 12 bit (0-4095)
+VREF_MV = 3300        # reference voltage of the ADC in mV
+SAMPLES = 5           # readings averaged per output line to reduce noise
  
  
-def read_calibration(bus, address):
-    """Read the 12 factory calibration values: T1-T3 and P1-P9."""
-    data = bus.read_i2c_block_data(address, REG_CALIBRATION, 24)
-    # T1 and P1 are unsigned 16 bit, all the others signed 16 bit, little endian
-    return struct.unpack("<HhhHhhhhhhhh", bytes(data))
+def read_raw_averaged(adc, channel, samples=SAMPLES):
+    """Return the average of several raw readings of one ADC channel."""
+    total = 0
+    for _ in range(samples):
+        total += adc.read_raw(channel)
+        time.sleep(0.02)
+    return total / samples
  
  
-def start_measuring(bus, address):
-    """Put the chip in normal mode (temperature x2, pressure x16 oversampling)."""
-    bus.write_byte_data(address, REG_CONFIG, 0x00)
-    bus.write_byte_data(address, REG_CTRL_MEAS, 0x57)
-    time.sleep(0.1)  # let the first measurement finish
+def raw_to_millivolts(raw):
+    """Convert a raw 12-bit value to millivolts."""
+    return raw / ADC_MAX * VREF_MV
  
  
-def read_raw(bus, address):
-    """Return the raw 20 bit (temperature, pressure) values."""
-    d = bus.read_i2c_block_data(address, REG_DATA, 6)
-    raw_pressure = (d[0] << 12) | (d[1] << 4) | (d[2] >> 4)
-    raw_temperature = (d[3] << 12) | (d[4] << 4) | (d[5] >> 4)
-    return raw_temperature, raw_pressure
+def moisture_percent(raw, dry, wet):
+    """Map a raw value to 0-100 % using the dry and wet calibration points."""
+    if dry == wet:
+        raise ValueError("dry and wet calibration values must be different")
+    pct = (dry - raw) / (dry - wet) * 100
+    return max(0.0, min(100.0, pct))
  
  
-def compensate(raw_temperature, raw_pressure, calibration):
-    """Convert raw values to (temperature in deg C, pressure in hPa).
- 
-    Floating point formulas from the BMP280 datasheet (section 3.11.3).
-    """
-    t1, t2, t3, p1, p2, p3, p4, p5, p6, p7, p8, p9 = calibration
- 
-    # temperature
-    var1 = (raw_temperature / 16384.0 - t1 / 1024.0) * t2
-    var2 = (raw_temperature / 131072.0 - t1 / 8192.0) ** 2 * t3
-    t_fine = var1 + var2
-    temperature_c = t_fine / 5120.0
- 
-    # pressure (in Pa)
-    var1 = t_fine / 2.0 - 64000.0
-    var2 = var1 * var1 * p6 / 32768.0
-    var2 = var2 + var1 * p5 * 2.0
-    var2 = var2 / 4.0 + p4 * 65536.0
-    var1 = (p3 * var1 * var1 / 524288.0 + p2 * var1) / 524288.0
-    var1 = (1.0 + var1 / 32768.0) * p1
-    if var1 == 0:
-        return temperature_c, 0.0  # avoid a division by zero
-    pressure = 1048576.0 - raw_pressure
-    pressure = (pressure - var2 / 4096.0) * 6250.0 / var1
-    var1 = p9 * pressure * pressure / 2147483648.0
-    var2 = pressure * p8 / 32768.0
-    pressure = pressure + (var1 + var2 + p7) / 16.0
- 
-    return temperature_c, pressure / 100.0
- 
- 
-def pressure_level(hpa):
-    """Rough qualitative level of the air pressure."""
-    if hpa < 1000:
-        return "low (unsettled weather)"
-    if hpa <= 1020:
-        return "normal"
-    return "high (settled weather)"
+def moisture_level(pct):
+    """Qualitative level for the planting bed."""
+    if pct < 30:
+        return "dry"
+    if pct < 60:
+        return "moist"
+    return "wet"
  
  
 def main():
-    parser = argparse.ArgumentParser(description="Barometer (BMP280/BME280) test")
-    parser.add_argument("--address", type=lambda s: int(s, 0), default=None,
-                        help="I2C address, e.g. 0x76 (default: try 0x77 and 0x76)")
+    parser = argparse.ArgumentParser(description="Soil moisture sensor test")
+    parser.add_argument("--channel", type=int, default=DEFAULT_CHANNEL,
+                        help="ADC channel of the sensor (0, 2, 4, 6 ...)")
+    parser.add_argument("--dry", type=float, default=DEFAULT_DRY,
+                        help="raw value with the probe in air")
+    parser.add_argument("--wet", type=float, default=DEFAULT_WET,
+                        help="raw value with the probe in water")
     parser.add_argument("--interval", type=float, default=1.0,
                         help="seconds between readings")
     args = parser.parse_args()
  
-    with SMBus(I2C_BUS) as bus:
-        address, chip = find_sensor(bus, args.address)
-        if address is None:
-            print("No BMP280/BME280 found on I2C bus 1. Check the cable, the "
-                  "I2C port and run: i2cdetect -y 1")
-            return
+    adc = ADC()
+    print(f"Soil moisture on channel A{args.channel} "
+          f"(dry={args.dry:.0f}, wet={args.wet:.0f}). Ctrl+C to stop.")
+    print(f"{'raw (0-4095)':>13} {'voltage (mV)':>13} {'moisture (%)':>13}  level")
  
-        calibration = read_calibration(bus, address)
-        start_measuring(bus, address)
-        print(f"{chip} found at address 0x{address:02x}. Ctrl+C to stop.")
-        print(f"{'temperature (C)':>16} {'pressure (hPa)':>15}  level")
- 
-        try:
-            while True:
-                raw_t, raw_p = read_raw(bus, address)
-                temperature, hpa = compensate(raw_t, raw_p, calibration)
-                line = f"{temperature:16.2f} {hpa:15.2f}  {pressure_level(hpa)}"
-                if not PRESSURE_MIN_HPA <= hpa <= PRESSURE_MAX_HPA:
-                    line += "   <- out of range: check the sensor"
-                print(line)
-                time.sleep(args.interval)
-        except KeyboardInterrupt:
-            print("\nBye.")
+    try:
+        while True:
+            raw = read_raw_averaged(adc, args.channel)
+            pct = moisture_percent(raw, args.dry, args.wet)
+            line = (f"{raw:13.0f} {raw_to_millivolts(raw):13.0f} "
+                    f"{pct:13.1f}  {moisture_level(pct)}")
+            # A reading stuck at the extremes usually means a wiring problem.
+            if raw < 5 or raw > ADC_MAX - 5:
+                line += "   <- check the wiring / channel"
+            print(line)
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\nBye.")
  
  
 if __name__ == "__main__":
