@@ -1,8 +1,14 @@
 # device/
 
-> 🔓 Some tools for this folder are still open decisions — see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58). This README will be updated once the team decides.
+The device script. Runs on the Raspberry Pi 5 all the time, as a systemd service.
 
-Runs on the Raspberry Pi 5. Reads all sensors, drives the LED bar, servo latch and buzzer, sends each press to the API (REST/JSON) and sends status over a second communication protocol (to be decided).
+- Reads all sensors. Timed readings happen inside the script; the read interval per sensor comes from `.env` (set after Sprint 1 tests).
+- Sends each button press and the timed readings to the back end over REST (`POST /presses`, `POST /readings`).
+- Publishes station status over MQTT (local Mosquitto broker).
+- Receives commands from the back end over MQTT: set the LED bar level, unlock the latch. The servo locks the latch again after 60 s (`LATCH_RELOCK_SECONDS`).
+- Drives the LED bar and the servo latch. No buzzer.
 
 - `tests/`:  one small test script per sensor/actuator (Sprint 1)
 - GPIO access via the Grove library / gpiozero (RPi.GPIO does not work on the Pi 5)
+
+Messages and topics → [docs/data-model.md](../docs/data-model.md).

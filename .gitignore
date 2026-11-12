@@ -16,7 +16,7 @@ logs/
 data/*.csv
 *.joblib
 
-# Local database/dashboard data
+# Local database data
 deploy/data/
 
 # OS / editor

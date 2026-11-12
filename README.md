@@ -7,18 +7,12 @@ Team: Elisa Caldini · Hannah Kleutgens · Marie Sophie Köhl
 
 > Status: **Sprint 1: in progress.** This README describes the planned system; sections marked *(planned)* will be filled in as the code lands.
 
-> **🔓 Open decisions: see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58)**
-> We have not yet chosen the final tools for these parts, so this README describes them in general terms:
-> - web framework for the API
-> - time-series database + dashboard tool
-> - where the database and dashboard run (on the Pi, on a laptop, or a mix)
-> - Docker containers or direct installation
-> - second communication protocol besides REST/HTTP
-> - how programs auto-start on the Pi
-> - map library for the web page
-> - alert channel
+> **🔓 Still open:**
+> - map library for the web page ([#46](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/46))
+> - alert channel ([#42](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/42))
+> - edge AI ([#48](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/48))
 >
-> This README will be updated once we decide.
+> Everything else is decided ([#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58)) — see [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -29,45 +23,50 @@ Each press lights one more segment of an LED bar. When the bar is full, a small 
 
 Every press is stored together with the conditions at that moment — temperature, humidity, light, UV, air pressure, soil moisture, gas and air quality, and how many people walked past. Over time the data shows *when* and *in what conditions* people notice pollinators, and whether the planting helps.
 
-- **No app, no account, no screen**: one button, LEDs and printed info panels.
+- **For visitors: no app, no account, no screen**: one button, the LED bar and a printed info panel.
+- **For operators and partners (Ayuntamiento)**: a web page with login: charts, station status, map, settings and manual locker opening.
 - **Fair use**: a cooldown between presses and a daily cap stop one person from emptying the lockers.
 - **Privacy**: no camera or microphone; the motion sensor only counts movements.
 
 ## System overview
 
 ```
- ┌──────────────────────── Raspberry Pi 5 (station) ────────────────────────┐
- │                                                                          │
- │  ┌─────────┐      ┌───────────────┐   REST/JSON   ┌───────────────────┐  │
- │  │ Sensors │ ───► │ Device script │ ────────────► │        API        │  │
- │  └─────────┘      │   (device/)   │               │    (backend/)     │  │
- │  ┌───────────┐    │               │ ◄──────────── │                   │  │
- │  │ Actuators │ ◄─ │               │ progress /    └─────────┬─────────┘  │
- │  └───────────┘    └───────┬───────┘ unlock                  │            │
- │                           │ status, Pi health               ▼            │
- │                           ▼                       ┌───────────────────┐  │
- │              ┌──────────────────────────┐         │     Database      │  │
- │              │ Message broker           │         └────┬─────────┬────┘  │
- │              │ (optional, 2nd protocol) │              │         │       │
- │              └──────────────────────────┘              ▼         ▼       │
- │                                              ┌───────────┐ ┌──────────┐  │
- │                                              │ Dashboard │ │ Web page │  │
- │                                              │(partners) │ │(frontend)│  │
- │                                              └───────────┘ └──────────┘  │
- └──────────────────────────────────────────────────────────────────────────┘
+ ┌─────────────────────────────── Raspberry Pi 5 (station) ────────────────────────────────┐
+ │                                                                                         │
+ │              ┌───────────────┐   REST: presses, readings  ┌──────────────────┐          │
+ │ Sensors ───► │ Device script │ ─────────────────────────► │ Back end         │          │
+ │              │ (device/)     │                            │ FastAPI          │          │
+ │ Actuators ◄─ │ systemd       │ ◄── MQTT: commands ─────── │ (backend/)       │          │
+ │              │               │     (unlock, LED)          │ systemd          │          │
+ │              │               │ ─── MQTT: status ────────► │                  │          │
+ │              └───────────────┘                            │                  │          │
+ │ Pi status script ──────────────── MQTT: Pi health ──────► │                  │          │
+ │ (scripts/, cron, every 5 min)                             └───┬──────────┬───┘          │
+ │                                                  write, query │          │ REST/JSON    │
+ │                                                               ▼          ▼ + login      │
+ │                                                  ┌──────────────┐ ┌──────────────────┐  │
+ │ MQTT messages pass through Mosquitto             │ InfluxDB 2   │ │ Web page         │  │
+ │ (Docker, port bound to 127.0.0.1).               │ (Docker)     │ │ (frontend/)      │  │
+ │                                                  └──────────────┘ │ ECharts, served  │  │
+ │                                                                   │ by FastAPI       │  │
+ │                                                                   │ operators +      │  │
+ │                                                                   │ partners only    │  │
+ │                                                                   └──────────────────┘  │
+ │                                                                                         │
+ └─────────────────────────────────────────────────────────────────────────────────────────┘
    ▲ external data: weather (Euskalmet / Open-Meteo), air quality (Open Data Euskadi),
-     Bilbao parks & green spaces (open data)
+     Bilbao parks & green spaces (open data) → fetched by the back end
 ```
 
-Where the database and dashboard run (Pi or laptop) is still open — see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58).
+Everything runs on the Raspberry Pi 5.
 
 Three parts:
 
 | Part | Folder | Role |
 |---|---|---|
-| **Device script** | `device/` | Reads all sensors, drives LED bar / servo / buzzer, sends each press to the API, sends status over a second communication protocol |
-| **Back end** | `backend/` | REST API (documented with OpenAPI), cooldown + daily cap rules, storage in the time-series database, external APIs, alerts, analytics |
-| **Front end** | `frontend/` + `dashboards/` | Web page (progress, conditions, map of green spaces) and dashboards for partners |
+| **Device script** | `device/` | Reads all sensors, drives LED bar and servo latch, sends presses and readings to the back end (REST), publishes station status and receives commands (MQTT). Runs as a systemd service |
+| **Back end** | `backend/` | FastAPI: REST API (documented with OpenAPI), cooldown + daily cap rules, storage in InfluxDB 2, commands to the device over MQTT, login, external APIs, alerts, analytics. Runs as a systemd service |
+| **Front end** | `frontend/` | Web page for operators and partners, with login: charts and live gauges (Apache ECharts), status, progress, map, settings, manual unlock. Served by FastAPI |
 
 ## Hardware
 
@@ -83,14 +82,13 @@ Three parts:
 | Sensor | Gas *(to be added)* | Analogue / I2C | Air conditions near the station |
 | Sensor | Air quality *(to be added)* | Analogue | Air quality level at each press |
 | Actuator | LED bar | Digital | Progress towards the next plant |
-| Actuator | Servo latch | PWM | Unlocks the plant locker |
-| Actuator | Buzzer *(optional)* | Digital | Sound when a plant is unlocked |
+| Actuator | Servo latch | PWM | Unlocks the plant locker; locks again after 60 s |
 
 Exact pin/port wiring → [wiki: Hardware & wiring](../../wiki) *(planned)*.
 
 ## Data
 
-Each accepted press is sent as one JSON message, for example:
+The device script sends each press to the back end as one JSON message (`POST /presses`), for example:
 
 ```json
 {
@@ -108,7 +106,9 @@ Each accepted press is sent as one JSON message, for example:
 }
 ```
 
-The dashboards show this data in several ways *(planned)*: presses per day and per hour, live gauges of current conditions, presses against temperature / UV / humidity, a "good / fair / poor for pollinators" level, plants unlocked, and the trend before and after planting.
+The back end decides if the press counts (cooldown, daily cap) and stores it either way. Full message formats and database measurements: [docs/data-model.md](docs/data-model.md).
+
+The web page shows this data in several ways *(planned)*: presses per day and per hour, live gauges of current conditions, presses against temperature / UV / humidity, a "good / fair / poor for pollinators" level, plants unlocked, and the trend before and after planting.
 
 ## Repository structure
 
@@ -116,18 +116,19 @@ The dashboards show this data in several ways *(planned)*: presses per day and p
 device/            Sensor + actuator script for the Raspberry Pi
   tests/           One small test script per sensor / actuator
 backend/app/       API application (API, rules, storage, external APIs)
-frontend/          Web page (status, progress, map)
-dashboards/        Exported dashboard files from the dashboard tool
-deploy/            Setup files for running the station on the Pi (database, dashboard, auto-start)
+frontend/          Web page (charts, status, progress, map), served by FastAPI
+deploy/            Setup files for running the station on the Pi (Docker Compose, systemd, cron)
 docs/              Architecture, data model, diagrams
 scripts/           Helper scripts around the project (e.g. Pi status report)
 ```
+
+Architecture diagram and data model → **[docs/architecture.md](docs/architecture.md)**.
 
 How we work with branches, issues, pull requests and the board → **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 ## Deployment *(planned)*
 
-Everything runs on one Raspberry Pi 5 for the MVP. Some steps depend on tools the team has not chosen yet; they say **(depends on #58)**.
+Everything runs on one Raspberry Pi 5 for the MVP: InfluxDB 2 and Mosquitto in Docker, the back end and the device script as systemd services, the Pi status script from cron.
 
 ### 1. Get the code onto the Pi
 
@@ -151,32 +152,42 @@ pip install -r requirements.txt     # package list not added yet
 
 ```bash
 cp .env.example .env
-nano .env        # fill in tokens, cooldown, daily cap, target
+nano .env        # fill in InfluxDB token, login password hash, start values
 ```
 
 `.env` is in `.gitignore` and must **never** be committed, the repository is public. More in [CONTRIBUTING.md § 8](CONTRIBUTING.md#8-secrets-and-settings).
 
-### 4. Database and dashboard
+### 4. Database and message broker (Docker)
 
-Set up the time-series database and the dashboard tool (and a message broker, if the second protocol needs one). **(depends on #58)** which tools, where they run, and whether with Docker or a direct install.
+InfluxDB 2 and Mosquitto run in Docker, from one file: `deploy/compose.yaml` *(not added yet)*.
 
-Note: the campus network blocks some outbound ports, so a message broker should run locally on the station.
+```bash
+cd deploy
+docker compose up -d
+```
+
+- InfluxDB 2: one bucket `pollinator`, retention "never". Put its token in `.env`.
+- Mosquitto: port 1883 bound to `127.0.0.1`, so only programs on the Pi can reach it. The campus network blocks some outbound ports, so the broker runs locally on the station.
 
 ### 5. Start the programs so they run after a reboot
 
-Start the API and the device script, and set them up to start automatically when the Pi boots. **(depends on #58)**
+- **Back end (FastAPI)** and **device script**: one systemd service each. Unit files go in `deploy/` *(not added yet)*. Copy them to `/etc/systemd/system/`, then `sudo systemctl enable --now <service>`.
+- **Pi status script**: one crontab line (`crontab -e`) that runs the script in `scripts/` every 5 minutes with the project's `.venv` Python.
+
+Details → [deploy/README.md](deploy/README.md).
 
 ### 6. Open it
 
 | What | Address |
 |---|---|
-| Web page | `http://<pi-hostname>.local:8000/` *(port may change)* |
-| API docs (OpenAPI) | address depends on the web framework **(depends on #58)** |
-| Dashboard | address depends on the dashboard tool **(depends on #58)** |
+| Web page (login) | `http://<pi-hostname>.local:8000/` |
+| API docs (OpenAPI) | `http://<pi-hostname>.local:8000/docs` |
+
+Both are served by FastAPI. The port is `API_PORT` in `.env`.
 
 ### Scaling beyond the MVP
 
-The outdoor version replaces the Pi with a low-power microcontroller, LoRaWAN, and a solar panel + battery. The LoRaWAN network server forwards each press to the **same** REST endpoint as a webhook, so the back end and dashboards stay unchanged.
+The outdoor version replaces the Pi with a low-power microcontroller, LoRaWAN, and a solar panel + battery. The LoRaWAN network server forwards each press to the **same** REST endpoint as a webhook, so the back end and web page stay unchanged.
 
 ## Project management
 
