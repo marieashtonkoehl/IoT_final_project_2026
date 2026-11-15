@@ -21,7 +21,7 @@ Team: Elisa Caldini · Hannah Kleutgens · Marie Sophie Köhl
 A passer-by sees a bee or butterfly and presses a big button on the station.
 Each press lights one more segment of an LED bar. When the bar is full, a small locker opens and the visitor takes a native, pollinator-friendly plant and plants it in the bed next to the station.
 
-Every press is stored together with the conditions at that moment — temperature, humidity, light, UV, air pressure, soil moisture, gas and air quality, and how many people walked past. Over time the data shows *when* and *in what conditions* people notice pollinators, and whether the planting helps.
+Every press is stored together with the conditions at that moment — temperature, humidity, light, air pressure, soil moisture, VOC and estimated CO2 (eCO2), and how many people walked past. Over time the data shows *when* and *in what conditions* people notice pollinators, and whether the planting helps.
 
 - **For visitors: no app, no account, no screen**: one button, the LED bar and a printed info panel.
 - **For operators and partners (Ayuntamiento)**: a web page with login: charts, station status, map, settings and manual locker opening.
@@ -76,11 +76,9 @@ Three parts:
 | Sensor | PIR motion sensor | Digital GPIO | Counts passers-by (checks whether press numbers are realistic) |
 | Sensor | Temperature & humidity | I2C / digital *(check model)* | Conditions at each press |
 | Sensor | Light | Analogue (HAT ADC) | Sun / shade at each press |
-| Sensor | UV | Analogue / I2C *(check model)* | UV level at each press |
 | Sensor | Barometer | I2C | Air pressure → weather trend |
 | Sensor | Soil moisture | Analogue (HAT ADC) | Moisture of the planting bed → "please water" reminder |
-| Sensor | Gas *(to be added)* | Analogue / I2C | Air conditions near the station |
-| Sensor | Air quality *(to be added)* | Analogue | Air quality level at each press |
+| Sensor | SGP30 (VOC + eCO2) | I2C | Air conditions at each press: TVOC and estimated CO2. Indoor air-quality sensor, so outdoor values are indicative |
 | Actuator | LED bar | Digital | Progress towards the next plant |
 | Actuator | Servo latch | PWM | Unlocks the plant locker; locks again after 60 s |
 
@@ -97,18 +95,17 @@ The device script sends each press to the back end as one JSON message (`POST /p
   "temperature_c": 17.4,
   "humidity_pct": 62.0,
   "light_pct": 71.3,
-  "uv_index": 2.1,
   "pressure_hpa": 1016.8,
   "soil_moisture_pct": 38.5,
-  "gas_raw": 412,
-  "air_quality_raw": 95,
+  "tvoc_ppb": 120,
+  "eco2_ppm": 450,
   "motion_count_10min": 14
 }
 ```
 
 The back end decides if the press counts (cooldown, daily cap) and stores it either way. Full message formats and database measurements: [docs/data-model.md](docs/data-model.md).
 
-The web page shows this data in several ways *(planned)*: presses per day and per hour, live gauges of current conditions, presses against temperature / UV / humidity, a "good / fair / poor for pollinators" level, plants unlocked, and the trend before and after planting.
+The web page shows this data in several ways *(planned)*: presses per day and per hour, live gauges of current conditions, presses against temperature / light / humidity, a "good / fair / poor for pollinators" level, plants unlocked, and the trend before and after planting.
 
 ## Repository structure
 

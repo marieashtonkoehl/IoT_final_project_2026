@@ -13,7 +13,7 @@ flowchart LR
 
     subgraph DEV["Device"]
       direction TB
-      SENS["Sensors (Grove)<br/>button, PIR, temp & humidity,<br/>light, UV, soil moisture, barometer<br/>later: gas, air quality"]
+      SENS["Sensors (Grove)<br/>button, PIR, temp & humidity,<br/>light, soil moisture, barometer,<br/>SGP30 (VOC + eCO2)"]
       ACT["Actuators<br/>LED bar, servo latch"]
       DS["Device script<br/>Python · device/ · systemd"]
       PS["Pi status script<br/>scripts/ · cron, every 5 min"]
@@ -61,7 +61,7 @@ Notes:
 
 | Component | Technology | What it does | Runs as |
 |---|---|---|---|
-| Sensors | Grove sensors on the Pi HAT (digital, analogue via HAT ADC, I2C) | Button press, footfall, temperature, humidity, light, UV, soil moisture, air pressure | Hardware |
+| Sensors | Grove sensors on the Pi HAT (digital, analogue via HAT ADC, I2C) | Button press, footfall, temperature, humidity, light, soil moisture, air pressure, TVOC and estimated CO2 (SGP30, I2C, issue #30) | Hardware |
 | Actuators | Grove LED bar, servo | LED bar shows progress toward the next plant; servo unlocks the plant cupboard. No buzzer | Hardware |
 | Device script | Python 3, Grove library / gpiozero, HTTP client, MQTT client (e.g. paho-mqtt) | Runs all the time. Reads sensors on a timer (interval per sensor from `.env`), sends presses and readings to FastAPI (REST), publishes station status (MQTT), carries out commands (unlock, LED) | systemd service |
 | Pi status script | Python, `scripts/` | Reads CPU temperature, load, disk; publishes Pi health to MQTT | cron, every 5 min |

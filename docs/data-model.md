@@ -6,7 +6,7 @@ General rules:
 
 - One station = one `station_id`. MVP station: `deusto-ria-01`.
 - Timestamps: ISO 8601, UTC, with `Z`, to the second. Example: `2026-11-20T11:42:05Z`. The Pi clock is synced with NTP.
-- The unit is part of the field name (`_c`, `_pct`, `_hpa`, `_s`). See the unit table below.
+- The unit is part of the field name (`_c`, `_pct`, `_hpa`, `_ppb`, `_ppm`, `_s`). See the unit table below.
 - JSON uses `snake_case`. A sensor that fails sends `null`, not `0`.
 
 ## Units
@@ -16,12 +16,16 @@ General rules:
 | `_c` | degrees Celsius |
 | `_pct` | percent, 0–100 |
 | `_hpa` | hectopascal |
+| `_ppb` | parts per billion |
+| `_ppm` | parts per million |
 | `_s` | seconds |
-| `uv_index` | UV index, 0–11+ (conversion from raw value to confirm, issue #19) |
+| `tvoc_ppb` | total volatile organic compounds (TVOC) from the SGP30, ppb |
+| `eco2_ppm` | estimated CO2 (eCO2) from the SGP30, ppm. Calculated by the sensor from its gas readings, not a real CO2 measurement |
 | `light_pct` | percent of sensor range, 0 = dark, 100 = full sun (to confirm) |
 | `soil_moisture_pct` | percent, 0 = dry, 100 = wet (calibration to confirm, issue #20) |
 | `motion_count_10min` | number of PIR triggers in the last 10 minutes |
-| `_raw` | raw sensor value, no unit (gas, air quality, until converted) |
+
+The SGP30 (I2C, issue #30) is an indoor air-quality sensor, so outdoor values are indicative.
 
 ## REST messages from the device script
 
@@ -36,9 +40,10 @@ Sent on every press (issue #26).
   "temperature_c": 17.4,
   "humidity_pct": 62.0,
   "light_pct": 71.3,
-  "uv_index": 2.1,
   "pressure_hpa": 1016.8,
   "soil_moisture_pct": 38.5,
+  "tvoc_ppb": 120,
+  "eco2_ppm": 450,
   "motion_count_10min": 14
 }
 ```
@@ -51,7 +56,7 @@ Response:
 
 - The device does not decide if the press counts. The back end applies cooldown and daily cap.
 - `result` is one of `accepted`, `cooldown`, `daily_cap`.
-- `gas_raw` and `air_quality_raw` are added once those sensors are integrated (issues #30, #31).
+- `tvoc_ppb` and `eco2_ppm` are the latest SGP30 values (see below).
 
 ### Timed sensor reading: `POST /readings`
 
@@ -64,15 +69,18 @@ Sent by the device script on a timer. The read interval per sensor comes from `.
   "temperature_c": 17.6,
   "humidity_pct": 61.5,
   "light_pct": 69.8,
-  "uv_index": 2.0,
   "pressure_hpa": 1016.7,
   "soil_moisture_pct": 38.4,
+  "tvoc_ppb": 115,
+  "eco2_ppm": 445,
   "motion_count": 9,
   "interval_s": 600
 }
 ```
 
 The back end writes the sensor values to `environment` and `motion_count` / `interval_s` to `footfall`.
+
+SGP30 (issue #30): the device script reads it every 1 s, because the sensor needs this for its built-in baseline correction. The first ~15 s after start return fixed values (400 ppm / 0 ppb) and are discarded. The script sends the latest value at the interval set in `READ_INTERVAL_SGP30_SECONDS`.
 
 ## MQTT
 
@@ -134,13 +142,13 @@ InfluxDB 2, in Docker on the Pi. It is the only database.
 
 | Measurement | Tags | Fields (type, unit) | Written when |
 |---|---|---|---|
-| `presses` | `station_id`, `result` (`accepted` / `cooldown` / `daily_cap`) | `count` (int, always 1)<br/>`progress_count` (int, accepted presses in current cycle after this press)<br/>`temperature_c` (float, °C)<br/>`humidity_pct` (float, %)<br/>`light_pct` (float, %)<br/>`uv_index` (float, index)<br/>`pressure_hpa` (float, hPa)<br/>`soil_moisture_pct` (float, %)<br/>`motion_count_10min` (int, count)<br/>later: `gas_raw` (int, raw), `air_quality_raw` (int, raw) | Every press, accepted or rejected |
+| `presses` | `station_id`, `result` (`accepted` / `cooldown` / `daily_cap`) | `count` (int, always 1)<br/>`progress_count` (int, accepted presses in current cycle after this press)<br/>`temperature_c` (float, °C)<br/>`humidity_pct` (float, %)<br/>`light_pct` (float, %)<br/>`pressure_hpa` (float, hPa)<br/>`soil_moisture_pct` (float, %)<br/>`tvoc_ppb` (int, ppb)<br/>`eco2_ppm` (int, ppm)<br/>`motion_count_10min` (int, count) | Every press, accepted or rejected |
 
 ### `environment`
 
 | Measurement | Tags | Fields (type, unit) | Written when |
 |---|---|---|---|
-| `environment` | `station_id` | `temperature_c` (float, °C)<br/>`humidity_pct` (float, %)<br/>`light_pct` (float, %)<br/>`uv_index` (float, index)<br/>`pressure_hpa` (float, hPa)<br/>`soil_moisture_pct` (float, %)<br/>later: `gas_raw`, `air_quality_raw` (int, raw) | Every `POST /readings`; interval per sensor from `.env` (set after Sprint 1 tests) |
+| `environment` | `station_id` | `temperature_c` (float, °C)<br/>`humidity_pct` (float, %)<br/>`light_pct` (float, %)<br/>`pressure_hpa` (float, hPa)<br/>`soil_moisture_pct` (float, %)<br/>`tvoc_ppb` (int, ppb)<br/>`eco2_ppm` (int, ppm) | Every `POST /readings`; interval per sensor from `.env` (set after Sprint 1 tests) |
 
 ### `footfall`
 
@@ -183,7 +191,7 @@ Station status (online, locker state) is not stored in InfluxDB. The broker keep
 Example in InfluxDB line protocol (one accepted press):
 
 ```
-presses,station_id=deusto-ria-01,result=accepted count=1i,progress_count=7i,temperature_c=17.4,humidity_pct=62.0,light_pct=71.3,uv_index=2.1,pressure_hpa=1016.8,soil_moisture_pct=38.5,motion_count_10min=14i 1795174925000000000
+presses,station_id=deusto-ria-01,result=accepted count=1i,progress_count=7i,temperature_c=17.4,humidity_pct=62.0,light_pct=71.3,pressure_hpa=1016.8,soil_moisture_pct=38.5,tvoc_ppb=120i,eco2_ppm=450i,motion_count_10min=14i 1795174925000000000
 ```
 
 Not yet defined: external weather and air quality data (issues #36, #47), edge AI anomaly flags (issue #48).
