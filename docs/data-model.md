@@ -7,7 +7,8 @@ General rules:
 - One station = one `station_id`. MVP station: `deusto-ria-01`.
 - Timestamps: ISO 8601, UTC, with `Z`, to the second. Example: `2026-11-20T11:42:05Z`. The Pi clock is synced with NTP.
 - The unit is part of the field name (`_c`, `_pct`, `_hpa`, `_ppb`, `_ppm`, `_s`). See the unit table below.
-- JSON uses `snake_case`. A sensor that fails sends `null`, not `0`.
+- JSON uses `snake_case`. A sensor that fails sends `null`, not `0`. InfluxDB cannot store `null`, so the back end leaves a `null` field out of the InfluxDB point; the other fields are written as usual.
+- The daily cap resets at midnight Europe/Madrid. Timestamps are still stored in UTC.
 
 ## Units
 
@@ -129,6 +130,7 @@ Unlock command:
 - `command_id` format (to confirm). The device ignores a `command_id` it has already handled, because QoS 1 can deliver a command twice.
 - `level` is absolute, so a repeated LED command does no harm. An unlock command while the locker is already open does nothing.
 - After an unlock, the device script locks the latch again after 60 s and publishes status `locker: locked`.
+- When the device script starts, it always moves the latch to locked first and publishes `locker: locked`, so the locker cannot stay open after a crash or power loss.
 
 ## InfluxDB measurements
 
@@ -143,6 +145,10 @@ InfluxDB 2, in Docker on the Pi. It is the only database.
 | Measurement | Tags | Fields (type, unit) | Written when |
 |---|---|---|---|
 | `presses` | `station_id`, `result` (`accepted` / `cooldown` / `daily_cap`) | `count` (int, always 1)<br/>`progress_count` (int, accepted presses in current cycle after this press)<br/>`temperature_c` (float, °C)<br/>`humidity_pct` (float, %)<br/>`light_pct` (float, %)<br/>`pressure_hpa` (float, hPa)<br/>`soil_moisture_pct` (float, %)<br/>`tvoc_ppb` (int, ppb)<br/>`eco2_ppm` (int, ppm)<br/>`motion_count_10min` (int, count) | Every press, accepted or rejected |
+
+- On start, the back end restores the current progress from `progress_count` of the newest `presses` point.
+- The daily cap counts `accepted` presses since midnight Europe/Madrid (the query converts that local midnight to UTC).
+- A sensor value that was `null` in the JSON is missing from the point (see general rules).
 
 ### `environment`
 

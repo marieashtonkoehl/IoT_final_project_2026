@@ -1,6 +1,6 @@
 # Architecture
 
-The Pollinator Station MVP runs on one Raspberry Pi 5. A Python device script reads the Grove sensors, drives the actuators and sends presses and readings to a FastAPI back end over REST. The back end applies the rules (cooldown, daily cap, presses per plant), stores everything in InfluxDB and sends commands back to the device over MQTT. Operators and partners (Ayuntamiento) log in to our own web page, which FastAPI serves. It gets its data from the back end and draws the charts with Apache ECharts. Visitors only use the button, the LED bar and the printed panel.
+The Pollinator Station MVP runs on one Raspberry Pi 5. A Python device script reads the Grove sensors, drives the actuators and sends presses and readings to a FastAPI back end over REST. The back end applies the rules (cooldown, daily cap, presses per plant), stores everything in InfluxDB and sends commands back to the device over MQTT. Operators and partners (Ayuntamiento) log in to our own web page. FastAPI serves the page files; the page runs in their browser. It gets its data from the back end and draws the charts with Apache ECharts. Visitors only use the button, the LED bar and the printed panel.
 
 Message formats and database measurements: see [data-model.md](data-model.md). Decisions: wiki and issue #58.
 
@@ -29,10 +29,12 @@ flowchart LR
       DB[("InfluxDB 2 · Docker<br/>bucket: pollinator")]
     end
 
-    subgraph FE["Front end"]
-      WEB["Web page · frontend/<br/>served by FastAPI<br/>operators + partners, shared login<br/>ECharts charts + gauges, status,<br/>progress, map, settings, unlock"]
+    subgraph FE["Front end files"]
+      WEB["Web page files · frontend/<br/>HTML, CSS, JS, ECharts<br/>stored on the Pi, served by FastAPI"]
     end
   end
+
+  BR["Browser (operator / partner)<br/>runs the web page:<br/>shared login, ECharts charts + gauges,<br/>status, progress, map, settings, unlock"]
 
   SENS -- "readings" --> DS
   DS -- "REST POST<br/>/presses, /readings" --> API
@@ -44,13 +46,14 @@ flowchart LR
   DS -- "LED level, servo unlock,<br/>relock after 60 s" --> ACT
   API -- "write points" --> DB
   DB -- "query" --> API
-  WEB -- "REST + login" --> API
-  API -- "JSON" --> WEB
+  WEB -. "page files" .-> API
+  BR -- "HTTP: page + REST<br/>(login, JSON)" --> API
 ```
 
 Notes:
 
-- The web page only talks to FastAPI over REST. It never connects to the MQTT broker or the database.
+- The web page files (`frontend/`) are stored on the Pi and served by FastAPI, but the page runs in the operator's or partner's browser, outside the Pi.
+- The web page only talks to FastAPI over HTTP (page files + REST). It never connects to the MQTT broker or the database.
 - The back end is the only part that reads from or writes to InfluxDB.
 - The Mosquitto port is bound to `127.0.0.1`, so only programs on the Pi can reach the broker.
 - InfluxDB 2 and Mosquitto run in Docker, from the same `compose.yaml`.
@@ -68,7 +71,7 @@ Notes:
 | MQTT broker | Mosquitto | Station status and Pi health → back end; commands → device. Port bound to `127.0.0.1` | Docker (`compose.yaml`) |
 | Back end | FastAPI + Uvicorn, InfluxDB client, MQTT client | Receives presses and readings, applies cooldown / daily cap / presses per plant, writes to and reads from InfluxDB, subscribes to status and health, publishes commands, REST API and login for the web page | systemd service |
 | Database | InfluxDB 2, one bucket `pollinator`, retention "never" | Only database. Stores presses, readings, footfall, unlocks, Pi health, settings, operator actions | Docker (`compose.yaml`) |
-| Web page | HTML / CSS / JavaScript, Apache ECharts (file kept in `frontend/`, no CDN), map library (open, #46) | Dashboard for operators and partners: login, charts, live gauges, station status, progress, map, settings, manual unlock | Served by FastAPI (same server as the API) |
+| Web page | HTML / CSS / JavaScript, Apache ECharts (file kept in `frontend/`, no CDN), map library (open, #46) | Dashboard for operators and partners: login, charts, live gauges, station status, progress, map, settings, manual unlock | Files served by FastAPI (same server as the API); the page runs in the user's browser |
 
 Nothing else runs from cron. Timed sensor readings happen inside the device script.
 
@@ -121,7 +124,7 @@ Used by the web page (login required, except `/health`):
 4. It sends one JSON message with `POST /presses` to FastAPI.
 5. The back end reads the current settings (newest `settings` point) and checks the rules:
    - inside the cooldown → `cooldown`
-   - above the daily cap → `daily_cap`
+   - above the daily cap → `daily_cap` (the day runs from midnight to midnight Europe/Madrid; timestamps are still stored in UTC)
    - otherwise → `accepted`
 6. The back end writes the press to the `presses` measurement with tag `result`. Rejected presses are stored too.
 7. The back end answers with the result and the progress (`count` = accepted presses since the last unlock).
@@ -145,6 +148,9 @@ Commands use QoS 1, so the device may receive the same command twice. Each comma
 - **Station status**: the device script publishes its status (QoS 0, retained) when it changes and on start. Its MQTT last will sets `online: false` if it disconnects.
 - **Pi health**: cron starts the Pi status script every 5 min. It publishes CPU temperature, load and disk (QoS 0). The back end writes a `pi_status` point.
 - **Settings change**: a logged-in user changes a setting on the web page → `PUT /settings` → new `settings` point + `operator_actions` point. The new value applies to the next press.
+- **Back-end start / restart**: the back end restores the current progress (`count`) from the `progress_count` field of the newest `presses` point, so a restart does not lose progress toward the next plant.
+- **Device script start**: the device script always moves the latch to "locked" when it starts, then publishes station status with `locker: locked`. So the locker cannot stay open after a crash or power loss.
+- **Daily cap reset**: the daily cap counts accepted presses per calendar day in Europe/Madrid time and resets at local midnight. All timestamps are still stored in UTC.
 
 ## Open decisions
 
