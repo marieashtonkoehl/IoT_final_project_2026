@@ -302,12 +302,11 @@ Where things go:
 
 | Folder | What goes in it |
 |---|---|
-| `device/` | The script that runs on the Raspberry Pi: reads the sensors, drives the LED bar, servo and buzzer |
+| `device/` | The script that runs on the Raspberry Pi: reads the sensors, drives the LED bar and servo |
 | `device/tests/` | One small test script per sensor / actuator |
 | `backend/` | Things *about* the server: its README, the list of Python packages it needs, tests |
 | `backend/app/` | The server code itself: API, rules, storage, external APIs |
 | `frontend/` | The web page (progress, conditions, map) |
-| `dashboards/` | Exported dashboard files from the dashboard tool, so they can be imported again |
 | `deploy/` | Setup files and instructions for running the station on the Pi |
 | `docs/` | Architecture, data model, diagrams |
 | `scripts/` | Helper scripts around the project (e.g. Pi status report) |
@@ -315,9 +314,9 @@ Where things go:
 
 ### About `deploy/`
 
-`deploy/` holds the setup files and instructions for running the station **on the Raspberry Pi**. For example: the configuration for the database, dashboard and message broker, and the files that make our programs start automatically when the Pi boots.
+`deploy/` holds the setup files and instructions for running the station **on the Raspberry Pi**. For example: the Docker Compose file for InfluxDB 2 and Mosquitto, the systemd unit files that make the back end and the device script start automatically when the Pi boots, and the crontab line for the Pi status script.
 
-You use these files **on the Pi**, after cloning the repo there. A laptop only needs VS Code, SSH and a browser — unless the team decides to run some services on a laptop (see [#58](https://github.com/marieashtonkoehl/IoT_final_project_2026/issues/58)).
+You use these files **on the Pi**, after cloning the repo there. Everything runs on the Pi, so a laptop only needs VS Code, SSH and a browser.
 
 ### What is `.gitkeep`?
 
