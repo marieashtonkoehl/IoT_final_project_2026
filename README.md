@@ -156,14 +156,16 @@ nano .env        # fill in InfluxDB token, login password hash, start values
 
 ### 4. Database and message broker (Docker)
 
-InfluxDB 2 and Mosquitto run in Docker, from one file: `deploy/compose.yaml` *(not added yet)*.
+InfluxDB 2 and Mosquitto run in Docker, from one file: `deploy/compose.yaml`. Full steps and tests → [deploy/README.md](deploy/README.md).
 
 ```bash
+ln -s ../.env deploy/.env    # once: compose reads .env from deploy/
 cd deploy
+mkdir -p data/influxdb/data data/influxdb/config data/mosquitto/data data/mosquitto/log
 docker compose up -d
 ```
 
-- InfluxDB 2: one bucket `pollinator`, retention "never". Put its token in `.env`.
+- InfluxDB 2: one bucket `pollinator`, retention "never". Set up on first start from the `DB_*` values in `.env` (generate token and password with `openssl rand -hex 32`).
 - Mosquitto: port 1883 bound to `127.0.0.1`, so only programs on the Pi can reach it. The campus network blocks some outbound ports, so the broker runs locally on the station.
 
 ### 5. Start the programs so they run after a reboot
