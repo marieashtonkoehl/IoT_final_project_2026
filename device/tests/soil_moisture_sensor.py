@@ -11,8 +11,8 @@ from grove.adc import ADC
 
 # --- Settings (see port plan) ---
 CHANNEL = 2        # A2: soil moisture sensor (change to your port)
-DRY_RAW = 3000     # raw value with the probe in air   -> measure and replace
-WET_RAW = 1200     # raw value with the probe in water -> measure and replace
+DRY_RAW = 0     # raw value with the probe in air   -> measure and replace
+WET_RAW = 1900     # raw value with the probe in water -> measure and replace
 ADC_MAX = 4095     # the HAT ADC is 12 bit
 VREF_MV = 3300     # ADC reference voltage in mV
 SAMPLES = 5        # readings averaged per line (less noise)
