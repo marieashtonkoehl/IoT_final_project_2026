@@ -14,7 +14,7 @@ CHANNEL = 0        # A0: light sensor (as in Lab 4, change to your port)
 ADC_MAX = 4095     # the HAT ADC is 12 bit
 VREF_MV = 3300     # ADC reference voltage in mV
 SAMPLES = 5        # readings averaged per line (less noise)
-MAX_RAW = 2870     # maximum raw value 
+MAX_RAW = 2870     # sensor ceiling: same raw for daylight and a torch is both 100 %
 DARK_BELOW = 10    # % under which it is dark
 SHADE_BELOW = 40   # % under which it is shade
 
