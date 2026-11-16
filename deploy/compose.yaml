@@ -1,0 +1,37 @@
+# InfluxDB 2 + Mosquitto for the Pollinator Station (issue #24).
+# Runs on the Raspberry Pi. Steps: deploy/README.md.
+#
+# Values come from deploy/.env, a link to the repo root .env (ln -s ../.env deploy/.env).
+# ${VAR:?...} stops compose with an error if the value is missing in .env.
+
+services:
+  influxdb:
+    image: influxdb:2              # not "latest": that is InfluxDB 3
+    container_name: influxdb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8086:8086"      # only reachable from the Pi
+    environment:
+      # First-start setup. Runs only while data/influxdb/ is empty;
+      # later changes in .env have no effect (see "Start fresh" in README).
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${DB_ADMIN_USER:?set DB_ADMIN_USER in .env}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${DB_ADMIN_PASSWORD:?set DB_ADMIN_PASSWORD in .env}
+      DOCKER_INFLUXDB_INIT_ORG: ${DB_ORG:?set DB_ORG in .env}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${DB_BUCKET:?set DB_BUCKET in .env}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${DB_TOKEN:?set DB_TOKEN in .env}
+      # DOCKER_INFLUXDB_INIT_RETENTION not set = retention "never" (infinite)
+    volumes:
+      - ./data/influxdb/data:/var/lib/influxdb2     # the database
+      - ./data/influxdb/config:/etc/influxdb2       # CLI config with the token
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1883:1883"      # only reachable from the Pi
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./data/mosquitto/data:/mosquitto/data       # retained messages
+      - ./data/mosquitto/log:/mosquitto/log
