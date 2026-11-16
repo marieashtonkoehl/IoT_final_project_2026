@@ -14,11 +14,11 @@ CHANNEL = 0        # A0: light sensor (as in Lab 4, change to your port)
 ADC_MAX = 4095     # the HAT ADC is 12 bit
 VREF_MV = 3300     # ADC reference voltage in mV
 SAMPLES = 5        # readings averaged per line (less noise)
+MAX_RAW = 2870     # maximum raw value 
 DARK_BELOW = 10    # % under which it is dark
 SHADE_BELOW = 40   # % under which it is shade
 
-adc = ADC()
-
+adc = ADC(address=0x08)  
 
 # --- Helpers ---
 def read_raw():
@@ -44,7 +44,7 @@ print(f"{'raw':>8} {'mV':>8} {'light %':>9}  level")
 try:
     while True:
         raw = read_raw()
-        pct = raw / ADC_MAX * 100
+        pct = min(100, raw / ADC_MAX * 100)
         mv = raw / ADC_MAX * VREF_MV
         print(f"{raw:8.0f} {mv:8.0f} {pct:9.1f}  {level(pct)}")
         time.sleep(1)
