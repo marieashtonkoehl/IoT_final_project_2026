@@ -6,7 +6,7 @@ import time
 import struct
 from smbus2 import SMBus
 
- --- Settings 
+# --- Settings ---
 I2C_BUS = 1          # /dev/i2c-1 on the Raspberry Pi
 ADDRESS = 0x76
 REG_ID = 0xD0
