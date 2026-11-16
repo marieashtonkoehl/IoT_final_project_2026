@@ -2,8 +2,12 @@
 Reads the sensor every second and prints the raw ADC value, the voltage,
 the light level in % and a qualitative level (dark / shade / bright).
  
-How to check it: uncover the sensor (room light was about 70 %),
-cover it with your hand (about 1-4 %), then point it at a lamp or a window.
+How to check it: cover it with your hand (about 1-4 %), then uncover it
+by a window in daylight or point a torch at it (about 100 %).
+
+Calibration (measured on the Pi): daylight by a window (overcast, no lamps)
+and a torch both gave raw ~2870, which is the sensor's ceiling (MAX_RAW).
+Readings above it are capped at 100 %. Re-measure if the sensor or port changes.
 
 """
 import time
