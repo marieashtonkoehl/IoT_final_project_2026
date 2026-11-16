@@ -106,9 +106,10 @@ ls -l deploy/.env           # expected: ... deploy/.env -> ../.env
 ```bash
 cd ~/IoT_final_project_2026/deploy
 mkdir -p data/influxdb/data data/influxdb/config data/mosquitto/data data/mosquitto/log   # creates the folders the containers store data in
+sudo chown -R 1883:1883 data/mosquitto   # gives the Mosquitto folders to the container's user (id 1883), so it can write data and logs
 ```
 
-The containers give these folders to their own internal user on start. That is expected. It also means deleting them later needs `sudo`.
+Without the `chown`, Mosquitto stops with `Unable to open log file /mosquitto/log/mosquitto.log for writing`. InfluxDB needs no extra step. Because of this, deleting `data/` later needs `sudo`.
 
 ### 5. Start
 

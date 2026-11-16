@@ -162,6 +162,7 @@ InfluxDB 2 and Mosquitto run in Docker, from one file: `deploy/compose.yaml`. Fu
 ln -s ../.env deploy/.env    # once: compose reads .env from deploy/
 cd deploy
 mkdir -p data/influxdb/data data/influxdb/config data/mosquitto/data data/mosquitto/log
+sudo chown -R 1883:1883 data/mosquitto   # Mosquitto runs as user 1883 and must be able to write here
 docker compose up -d
 ```
 
