@@ -3,8 +3,9 @@
 Reads the sensor every second and prints the raw ADC value, the voltage,
 the moisture in % and a qualitative level (dry / moist / wet).
  
-Calibrate DRY_RAW and WET_RAW first: run once with the probe in air and
-once in a glass of water, and write the two raw values below.
+Calibration (measured on the Pi): probe in air gave raw ~0 (DRY_RAW),
+probe in a glass of water gave raw ~1900 (WET_RAW). Re-measure if the
+sensor or port changes.
 """
 import time
 from grove.adc import ADC
