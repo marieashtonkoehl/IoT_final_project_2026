@@ -1,6 +1,6 @@
-"""Barometer test (BME280)
-Finds the sensor on the I2C bus, reads temperature and air pressure every
-second and prints them with a qualitative pressure level.
+"""Barometer test BME280 
+Finds the sensor on the I2C bus, reads temperature, air pressure and
+humidity every second and prints them with qualitative levels.
 """
 import time
 import struct
