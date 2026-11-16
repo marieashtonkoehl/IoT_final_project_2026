@@ -44,7 +44,7 @@ print(f"{'raw':>8} {'mV':>8} {'light %':>9}  level")
 try:
     while True:
         raw = read_raw()
-        pct = min(100, raw / ADC_MAX * 100)
+        pct = min(100, raw / MAX_RAW * 100)
         mv = raw / ADC_MAX * VREF_MV
         print(f"{raw:8.0f} {mv:8.0f} {pct:9.1f}  {level(pct)}")
         time.sleep(1)
