@@ -38,9 +38,9 @@ def to_percent(raw):
 
 def level(pct):
     """Qualitative level of the planting bed."""
-    if pct < 30:
+    if pct < DRY_BELOW:
         return "dry"
-    if pct < 60:
+    if pct < MOIST_BELOW:
         return "moist"
     return "wet"
 
