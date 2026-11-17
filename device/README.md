@@ -13,3 +13,42 @@ The device script. Runs on the Raspberry Pi 5 all the time, as a systemd service
 - GPIO access via the Grove library / gpiozero (RPi.GPIO does not work on the Pi 5)
 
 Messages and topics → [docs/data-model.md](../docs/data-model.md).
+
+## Combined sensor test (#59)
+
+`tests/test_combined.py` reads all sensors and drives all actuators in one loop, to check they work together (pins, I2C bus, ADC). Pins as in [docs/wiring.md](../docs/wiring.md).
+
+Run it on the Pi, from the repo folder, with the venv on:
+
+```bash
+cd ~/IoT_final_project_2026
+source .venv/bin/activate
+pip install smbus2 gpiozero      # only if not installed yet
+i2cdetect -y 1                   # should list 08 (HAT) and 76 or 77 (BME280)
+python device/tests/test_combined.py
+```
+
+Expected output (one status line every ~2 s, events in between):
+
+```text
+Opening sensors and actuators...
+  OK    button (D5)
+  ...
+  OK    servo (GPIO12)
+        BME280 is a BME280 at 0x76
+Running. Press the button, wave at the PIR. Ctrl+C to stop.
+
+10:15:02 | light 45% bright | soil 12% dry | 21.3 C | 49 %RH | 1013.2 hPa | motion 0 | button up | bar 0/10
+10:15:03  motion detected (#1)
+10:15:04  pressed -> level 1/10
+...
+10:15:40  pressed -> level 10/10
+Bar full!
+10:15:40  servo -> OPEN (90°)
+10:15:44  servo -> LOCKED (0°)
+10:15:44  bar reset
+```
+
+- A missing I2C sensor shows `FAIL` at the start and `--` in the status lines; the rest keeps running.
+- An unplugged analogue sensor (light, soil) gives no error, just a value near 0.
+- Ctrl+C: LED bar and button LED off, servo back to LOCKED.
