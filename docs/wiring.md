@@ -6,7 +6,7 @@ The HAT has 6 digital ports, 4 analogue ports, 3 I2C ports, 1 PWM port and 1 UAR
 | Component | Type | Port | GPIO / I2C address | Purpose |
 |---|---|---|---|---|
 | Red LED Button v1.0 | Digital | D5 | GPIO5 (LED), GPIO6 (button) | Registers a pollinator sighting |
-| PIR motion sensor | Digital | D16 | GPIO16 | Counts passers-by |
+| PIR motion sensor | Digital | D16 | GPIO16 | Counts motion events (rough indicator of passers-by) |
 | LED bar v2.0 | Digital | D18 | GPIO18 (data), GPIO19 (clock) | Shows progress towards the next plant |
 | Servo latch | PWM | PWM | GPIO12 | Unlocks the plant locker |
 | Light sensor | Analogue | A0 | ADC channel 0 | Sun / shade at each press |
