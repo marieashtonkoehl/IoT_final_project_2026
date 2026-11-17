@@ -344,7 +344,8 @@ def main():
             time.sleep(SERVO_MOVE)
             servo.detach()
             servo.close()
-        bus.close()
+        if bus:
+            bus.close()
         print(f"Stopped. LEDs off, servo LOCKED. {motion_count} motion events counted.")
 
 
