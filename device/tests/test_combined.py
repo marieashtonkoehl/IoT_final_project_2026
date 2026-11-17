@@ -218,7 +218,7 @@ def main():
     from grove.adc import ADC
 
     print("Opening sensors and actuators...")
-    bus = SMBus(I2C_BUS)
+    bus = try_open("I2C bus 1", lambda: SMBus(I2C_BUS)) 
     btn     = try_open("button (D5)", lambda: GPIO(BTN_PIN, GPIO.IN))
     btn_led = try_open("button LED (D5)", lambda: GPIO(BTN_LED_PIN, GPIO.OUT))
     pir     = try_open("PIR (D16)", lambda: GPIO(PIR_PIN, GPIO.IN))
