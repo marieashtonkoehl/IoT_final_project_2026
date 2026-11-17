@@ -24,6 +24,7 @@ The HAT has 6 digital ports, 4 analogue ports, 3 I2C ports, 1 PWM port and 1 UAR
 ## Notes
 
 - The BME280 measures air pressure, temperature and humidity, so no separate temperature & humidity sensor is used.
+- The light sensor's reading tops out at the same value (raw ~2870) for overcast daylight and a torch, so it can't tell a cloudy day from a sunny one. Good enough for the MVP demo (dark / shade / bright), but a real station would need a sensor that measures actual light intensity.
 - Each digital Grove port carries two GPIO pins (e.g. D5 = GPIO5 + GPIO6). The LED button and the LED bar use both.
 - The HAT's own ADC uses I2C address **0x08**. No other sensor may use this address.
 - All I2C ports share the same bus. Check the addresses with `i2cdetect -y 1`.
