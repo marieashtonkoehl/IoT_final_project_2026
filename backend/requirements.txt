@@ -1,0 +1,8 @@
+# Back end packages. Install with: pip install -r backend/requirements.txt
+fastapi        # the web framework (also installs pydantic)
+uvicorn        # the server that runs the FastAPI app
+python-dotenv  # reads settings from .env
+
+# For the tests
+pytest
+httpx          # needed by FastAPI's TestClient

@@ -23,3 +23,4 @@ deploy/data/
 .DS_Store
 .vscode/
 .idea/
+.pytest_cache/
