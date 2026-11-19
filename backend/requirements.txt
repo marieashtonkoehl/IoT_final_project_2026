@@ -2,6 +2,7 @@
 fastapi        # the web framework (also installs pydantic)
 uvicorn        # the server that runs the FastAPI app
 python-dotenv  # reads settings from .env
+influxdb-client  # writes to and reads from InfluxDB 2 
 
 # For the tests
 pytest

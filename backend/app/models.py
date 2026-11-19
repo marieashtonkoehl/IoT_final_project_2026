@@ -151,6 +151,27 @@ class ReadingOut(BaseModel):
     status: Literal["received"]
 
 
+class StatusOut(BaseModel):
+    """Answer to `GET /status`: progress toward the next plant.
+
+    Station online / locker state come later (they need MQTT, issue #34).
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"count": 7, "presses_per_plant": 10, "last_press": "2026-11-20T11:42:05Z"}
+            ]
+        }
+    )
+
+    count: int = Field(description="Accepted presses in the current cycle.")
+    presses_per_plant: int = Field(description="Accepted presses needed for one plant.")
+    last_press: Optional[datetime] = Field(
+        description="Time of the newest accepted press (UTC), or null if there is none yet."
+    )
+
+
 class HealthOut(BaseModel):
     """Answer to `GET /health`."""
 
