@@ -1,3 +1,4 @@
+"""Backend API (FastAPI). Run from the backend/ folder: uvicorn app.main:app --reload"""
 from fastapi import FastAPI
 
 from rules.conditions import pollinator_level, air_quality_level
@@ -6,6 +7,8 @@ app = FastAPI(title="IoT backend")
 
 # TODO: replace with the real storage when it is ready.
 # For now this is a fake "latest reading" so we can try the endpoint.
+# TODO: check that the key names match docs/data-model.md; a wrong name
+# is not an error, the level would silently be "unknown".
 LATEST_READING = {
     "temperature": 24.0,   # deg C
     "humidity": 50.0,      # %
@@ -16,11 +19,13 @@ LATEST_READING = {
 
 
 def get_latest_reading():
+    """Return the latest sensor reading (fake for now)."""
     return LATEST_READING
 
 
 @app.get("/conditions")
 def get_conditions():
+    """Pollinator conditions and air quality levels (good / fair / poor / unknown)."""
     r = get_latest_reading() or {}
     return {
         "pollinator_conditions": pollinator_level(
