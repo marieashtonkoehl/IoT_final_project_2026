@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Pollinator Station</title>
+<!--
+  Web page v1 (#35): station overview for operators and partners.
+  Served by the FastAPI backend at "/" (see backend/app/main.py), behind the
+  shared login (the browser remembers it and sends it with every request).
+  - Conditions come from GET /conditions (levels good / fair / poor / unknown).
+  - Progress and today's presses come from GET /progress:
+    {"count": 7, "target": 10, "presses_today": 23}
+    (the backend returns fake values for now; to be replaced by the real data).
+  - Open the page with ?demo to see it with sample values, without the backend.
+-->
+<style>
+  :root {
+    --bg: #f5f7f2; --card: #ffffff; --text: #1d2a1f; --muted: #66726a;
+    --track: #e3e8df; --accent: #3f8f4f;
+    --good: #2e7d32; --good-bg: #e3f2e4;
+    --fair: #8a5a00; --fair-bg: #fdf0d2;
+    --poor: #b3261e; --poor-bg: #fbe3e1;
+    --unknown: #5f6b64; --unknown-bg: #e8ece6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121712; --card: #1b221c; --text: #e7efe8; --muted: #9aa89e;
+      --track: #2c362e; --accent: #6bbf7a;
+      --good: #8fd694; --good-bg: #1f3a22;
+      --fair: #f0c46a; --fair-bg: #3d3216;
+      --poor: #f2a09a; --poor-bg: #4a1f1c;
+      --unknown: #aab5ad; --unknown-bg: #2a322c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.4;
+  }
+  main { max-width: 480px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .tagline { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border-radius: 14px; padding: 18px; margin-bottom: 16px;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+  .card h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--muted); margin: 0 0 12px; }
+  .big { font-size: 1.6rem; font-weight: 700; }
+  .segments { display: flex; gap: 4px; margin-top: 12px; }
+  .segments span { flex: 1; height: 14px; border-radius: 4px; background: var(--track); }
+  .segments span.on { background: var(--accent); }
+  .stat { margin-top: 14px; color: var(--muted); }
+  .stat strong { color: var(--text); font-size: 1.2rem; }
+  .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+         padding: 10px 0; }
+  .row + .row { border-top: 1px solid var(--track); }
+  .row .name { font-weight: 600; }
+  .row .hint { color: var(--muted); font-size: .9rem; margin-top: 2px; }
+  .badge { flex: none; padding: 4px 12px; border-radius: 999px; font-weight: 700;
+           font-size: .85rem; text-transform: uppercase; letter-spacing: .03em; }
+  .level-good { color: var(--good); background: var(--good-bg); }
+  .level-fair { color: var(--fair); background: var(--fair-bg); }
+  .level-poor { color: var(--poor); background: var(--poor-bg); }
+  .level-unknown { color: var(--unknown); background: var(--unknown-bg); }
+  footer { color: var(--muted); font-size: .85rem; text-align: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The Pollinator Station</h1>
+  <p class="tagline">Station overview for operators and partners.</p>
+
+  <section class="card">
+    <h2>Progress</h2>
+    <div class="big" id="progress-text">–</div>
+    <div class="segments" id="segments" aria-hidden="true"></div>
+    <div class="stat"><strong id="today">–</strong> presses today</div>
+  </section>
+
+  <section class="card">
+    <h2>Conditions right now</h2>
+    <div class="row">
+      <div>
+        <div class="name">For pollinators</div>
+        <div class="hint" id="pollinator-hint"></div>
+      </div>
+      <span class="badge" id="pollinator-badge">–</span>
+    </div>
+    <div class="row">
+      <div>
+        <div class="name">Air quality</div>
+        <div class="hint" id="air-hint"></div>
+      </div>
+      <span class="badge" id="air-badge">–</span>
+    </div>
+  </section>
+
+  <footer id="status">connecting…</footer>
+</main>
+
+<script>
+  const CONDITIONS_URL = "/conditions";
+  const PROGRESS_URL = "/progress";
+  const REFRESH_SECONDS = 10;            // how often the data is refreshed
+  const DEFAULT_TARGET = 10;             // segments of the LED bar
+  const DEMO = new URLSearchParams(location.search).has("demo");
+
+  // Plain-language text for each level (the level is also written in words, not only colour).
+  const HINTS = {
+    pollinator: {
+      good: "A good moment to spot bees and butterflies.",
+      fair: "Some pollinators may be out.",
+      poor: "Few pollinators are likely to fly now.",
+      unknown: "No data yet."
+    },
+    air: {
+      good: "Clean air around the station.",
+      fair: "The air is acceptable.",
+      poor: "The air quality is poor right now.",
+      unknown: "No data yet."
+    }
+  };
+
+  const $ = id => document.getElementById(id);
+
+  function showLevel(kind, level) {
+    if (!HINTS[kind][level]) level = "unknown";   // anything unexpected counts as unknown
+    const badge = $(kind + "-badge");
+    badge.textContent = level;
+    badge.className = "badge level-" + level;
+    $(kind + "-hint").textContent = HINTS[kind][level];
+  }
+
+  function showProgress(count, target, today) {
+    const box = $("segments");
+    box.textContent = "";
+    const total = target || DEFAULT_TARGET;
+    for (let i = 0; i < total; i++) {
+      const seg = document.createElement("span");
+      if (count !== null && i < count) seg.className = "on";
+      box.appendChild(seg);
+    }
+    $("today").textContent = (today === undefined || today === null) ? "–" : today;
+    $("progress-text").textContent = count === null
+      ? "Progress coming soon"
+      : count + " of " + total + " sightings until the next plant";
+  }
+
+  async function getJson(url) {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }
+
+  async function refresh() {
+    if (DEMO) {
+      showLevel("pollinator", "good");
+      showLevel("air", "fair");
+      showProgress(7, 10, 23);
+      $("status").textContent = "demo values";
+      return;
+    }
+    let reachable = true;
+    try {
+      const c = await getJson(CONDITIONS_URL);
+      showLevel("pollinator", c.pollinator_conditions);
+      showLevel("air", c.air_quality);
+    } catch (e) {
+      reachable = false;
+      showLevel("pollinator", "unknown");
+      showLevel("air", "unknown");
+    }
+    try {
+      const p = await getJson(PROGRESS_URL);
+      showProgress(p.count, p.target, p.presses_today);
+    } catch (e) {
+      showProgress(null, DEFAULT_TARGET, null);
+    }
+    $("status").textContent = reachable
+      ? "updated " + new Date().toLocaleTimeString()
+      : "station not reachable";
+  }
+
+  refresh();
+  setInterval(refresh, REFRESH_SECONDS * 1000);
+</script>
+</body>
+</html>
