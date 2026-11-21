@@ -1,6 +1,6 @@
 """Tests for the good / fair / poor levels. Run from backend/:  python -m pytest -q"""
-from app.rules.conditions import pollinator_level, air_quality_level
 
+from rules.conditions import pollinator_level, air_quality_level
 
 def test_pollinator():
     assert pollinator_level(24, 80, 50) == "good"
