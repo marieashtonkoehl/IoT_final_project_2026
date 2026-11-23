@@ -1,0 +1,15 @@
+[Unit]
+Description=Pollinator Station device script (#26)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=haem
+WorkingDirectory=/home/haem/IoT_final_project_2026
+ExecStart=/home/haem/IoT_final_project_2026/.venv/bin/python -u device/station.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
