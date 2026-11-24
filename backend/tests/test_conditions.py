@@ -1,6 +1,7 @@
 """Tests for the good / fair / poor levels. Run from backend/:  python -m pytest -q"""
 
-from rules.conditions import pollinator_level, air_quality_level
+from app.conditions import pollinator_level, air_quality_level
+
 
 def test_pollinator():
     assert pollinator_level(24, 80, 50) == "good"
@@ -44,3 +45,15 @@ def test_air_quality():
 def test_air_quality_missing_values():
     assert air_quality_level() == "unknown"
     assert air_quality_level(100, None) == "good"        # one value is enough
+
+
+def test_conditions_endpoint(client):
+    # Fails with 404 if the route is below app.mount("/") in main.py.
+    response = client.get("/conditions")
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {"readings", "pollinator_conditions", "air_quality"}
+    # Wrong key names (not as in docs/data-model.md) would give "unknown".
+    assert body["pollinator_conditions"] != "unknown"
+    assert body["air_quality"] != "unknown"
+    assert body["readings"]["temperature_c"] == 24.0

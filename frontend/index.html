@@ -6,12 +6,15 @@
 <title>The Pollinator Station</title>
 <!--
   Web page v1 (#35): station overview for operators and partners.
-  Served by the FastAPI backend at "/" (see backend/app/main.py), behind the
-  shared login (the browser remembers it and sends it with every request).
-  - Conditions come from GET /conditions (levels good / fair / poor / unknown).
-  - Progress and today's presses come from GET /progress:
-    {"count": 7, "target": 10, "presses_today": 23}
-    (the backend returns fake values for now; to be replaced by the real data).
+  Served by the FastAPI backend at "/" (StaticFiles mount in backend/app/main.py).
+  No login yet (issue #60).
+  - Conditions come from GET /conditions:
+    {"readings": {...}, "pollinator_conditions": "good", "air_quality": "fair"}
+    (levels good / fair / poor / unknown; the readings are fake for now).
+  - Progress comes from GET /status:
+    {"count": 7, "presses_per_plant": 10, "last_press": "2026-11-20T11:42:05Z"}
+  - TODO: "presses today" is not shown: /status has no presses_today yet
+    (to be added to /status in a follow-up issue).
   - Open the page with ?demo to see it with sample values, without the backend.
 -->
 <style>
@@ -74,7 +77,9 @@
     <h2>Progress</h2>
     <div class="big" id="progress-text">–</div>
     <div class="segments" id="segments" aria-hidden="true"></div>
-    <div class="stat"><strong id="today">–</strong> presses today</div>
+    <!-- TODO: show "presses today" again once /status returns presses_today
+         (follow-up issue), e.g.
+         <div class="stat"><strong id="today">–</strong> presses today</div> -->
   </section>
 
   <section class="card">
@@ -100,7 +105,7 @@
 
 <script>
   const CONDITIONS_URL = "/conditions";
-  const PROGRESS_URL = "/progress";
+  const STATUS_URL = "/status";
   const REFRESH_SECONDS = 10;            // how often the data is refreshed
   const DEFAULT_TARGET = 10;             // segments of the LED bar
   const DEMO = new URLSearchParams(location.search).has("demo");
@@ -131,16 +136,15 @@
     $(kind + "-hint").textContent = HINTS[kind][level];
   }
 
-  function showProgress(count, target, today) {
+  function showProgress(count, pressesPerPlant) {
     const box = $("segments");
     box.textContent = "";
-    const total = target || DEFAULT_TARGET;
+    const total = pressesPerPlant || DEFAULT_TARGET;
     for (let i = 0; i < total; i++) {
       const seg = document.createElement("span");
       if (count !== null && i < count) seg.className = "on";
       box.appendChild(seg);
     }
-    $("today").textContent = (today === undefined || today === null) ? "–" : today;
     $("progress-text").textContent = count === null
       ? "Progress coming soon"
       : count + " of " + total + " sightings until the next plant";
@@ -156,7 +160,7 @@
     if (DEMO) {
       showLevel("pollinator", "good");
       showLevel("air", "fair");
-      showProgress(7, 10, 23);
+      showProgress(7, 10);
       $("status").textContent = "demo values";
       return;
     }
@@ -171,10 +175,10 @@
       showLevel("air", "unknown");
     }
     try {
-      const p = await getJson(PROGRESS_URL);
-      showProgress(p.count, p.target, p.presses_today);
+      const s = await getJson(STATUS_URL);
+      showProgress(s.count, s.presses_per_plant);
     } catch (e) {
-      showProgress(null, DEFAULT_TARGET, null);
+      showProgress(null, DEFAULT_TARGET);
     }
     $("status").textContent = reachable
       ? "updated " + new Date().toLocaleTimeString()

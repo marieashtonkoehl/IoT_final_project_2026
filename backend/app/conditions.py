@@ -1,4 +1,4 @@
-"""Qualitative levels (good / fair / poor) for GET /conditions 
+"""Qualitative levels (good / fair / poor) for GET /conditions.
 
 pollinator_level:  conditions for pollinators from temperature, light, humidity.
 air_quality_level: air quality from TVOC and eCO2 (SGP30 sensor).
@@ -10,7 +10,7 @@ GOOD, FAIR, POOR, UNKNOWN = "good", "fair", "poor", "unknown"
 # Insect monitoring schemes do not count below 13 C and accept 17 C and above
 # The upper limits (30 / 35) are our own choice: the sources give no maximum
 TEMP_C = (17, 30, 13, 35)
-HUMIDITY_PCT = (30, 80, 20, 90) #only very dry air or fog/rain (> 90 %) is poor (okay?)
+HUMIDITY_PCT = (30, 80, 20, 90)  # only very dry air or fog/rain (> 90 %) is poor
 
 # (good_min, fair_min): below 10 % it is dark (poor), below 40 % it is shade (fair).
 # PLACEHOLDER until the light sensor is calibrated (issue #76).
@@ -21,6 +21,8 @@ LIGHT_PCT = (40, 10)
 TVOC_PPB = (220, 660)
 # eCO2: 600-800 ppm acceptable, about 1000 ppm tolerable (indoor reference)
 ECO2_PPM = (800, 1000)
+# Note: the TVOC and eCO2 scales are made for INDOOR air; we use them
+# outdoors as a rough guide only.
 
 _RANK = {POOR: 0, FAIR: 1, GOOD: 2}
 
