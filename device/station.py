@@ -52,7 +52,7 @@ load_dotenv(REPO_ROOT / ".env", override=False)
 def env_int(name, default):
     """Whole number from .env, or the default if missing or empty."""
     value = os.getenv(name, "").strip()
-    return int(value) if value else default
+    return max(1, int(value)) if value else default
 
 
 STATION_ID = os.getenv("STATION_ID", "").strip() or "deusto-ria-01"
