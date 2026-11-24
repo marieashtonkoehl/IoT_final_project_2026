@@ -4,6 +4,9 @@ No database needed. The line-protocol tests use the real InfluxDB client
 library (without a server), so they check the exact text sent to InfluxDB.
 """
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 from influxdb_client import Point, WritePrecision
 
@@ -127,3 +130,65 @@ def test_reads_are_per_station(store):
     assert storage.count_accepted_since("deusto-ria-01", utc("2026-11-20T00:00:00Z")) == 0
     assert storage.get_progress_count("deusto-ria-01", presses_per_plant=10) == 0
     assert storage.get_progress_count("other-01", presses_per_plant=10) == 6
+
+
+
+# Flux query text (InfluxDB OSS has no query parameters, so values go into the text)
+
+
+def test_flux_string_plain():
+    assert storage.flux_string("deusto-ria-01") == '"deusto-ria-01"'
+
+
+def test_flux_string_escapes_quote_and_backslash():
+    # Python 'a"b\c'  ->  Flux "a\"b\\c"
+    assert storage.flux_string('a"b\\c') == '"a\\"b\\\\c"'
+
+
+def test_flux_string_backslash_before_quote():
+    # A value ending in \" must not be able to close the string early:
+    # \  -> \\   and   "  -> \"   gives  \\\"  (an escaped backslash + an escaped quote)
+    assert storage.flux_string('x\\"') == '"x\\\\\\""'
+
+
+def test_flux_string_escapes_interpolation():
+    # In Flux, "${...}" inside a string would insert a value.
+    assert storage.flux_string("${r._value}") == '"\\${r._value}"'
+
+
+def test_flux_time_is_utc_with_z():
+    madrid_midnight = datetime(2026, 11, 20, 0, 0, tzinfo=ZoneInfo("Europe/Madrid"))
+    assert storage.flux_time(madrid_midnight) == "2026-11-19T23:00:00Z"
+
+
+def test_flux_time_needs_a_time_zone():
+    with pytest.raises(ValueError):
+        storage.flux_time(datetime(2026, 11, 20))
+
+
+ALL_QUERIES = {
+    "last_accepted": storage.last_accepted_query("pollinator", "deusto-ria-01"),
+    "count_since": storage.count_accepted_since_query(
+        "pollinator", "deusto-ria-01", utc("2026-11-19T23:00:00Z")
+    ),
+    "newest_progress": storage.newest_progress_query("pollinator", "deusto-ria-01"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(ALL_QUERIES))
+def test_queries_use_no_params(name):
+    query = ALL_QUERIES[name]
+    assert "params." not in query  # would fail on InfluxDB OSS
+    assert 'from(bucket: "pollinator")' in query
+    assert 'r.station_id == "deusto-ria-01"' in query
+
+
+def test_count_query_starts_at_the_given_time():
+    query = ALL_QUERIES["count_since"]
+    assert "range(start: 2026-11-19T23:00:00Z, stop: 2100-01-01T00:00:00Z)" in query
+    assert 'r.result == "accepted"' in query
+
+
+def test_strange_station_id_stays_inside_the_string():
+    query = storage.last_accepted_query("pollinator", 'x" or r._measurement != "')
+    assert 'r.station_id == "x\\" or r._measurement != \\""' in query

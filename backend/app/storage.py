@@ -199,13 +199,102 @@ class MemoryStore:
 
 
 
-# Store 2: InfluxDB (main one)
+# Building Flux queries (plain text, no database needed, easy to test)
+
+# InfluxDB OSS 2.x has no query parameters (`params.xxx` only works in
+# InfluxDB Cloud). So the values have to go INTO the query text. To keep a
+# strange value (e.g. a station_id with a " in it) from changing the query
+# itself ("injection"), every text value goes through flux_string(), and
+# every time through flux_time().
+
+
+def flux_string(value: str) -> str:
+    """A Python string as a safe Flux string literal, with the quotes.
+
+    Order matters: backslashes first (otherwise we would double the
+    backslashes we add for the quotes), then double quotes. Flux also treats
+    "${...}" inside a string as a placeholder, so "${" is escaped too.
+        flux_string('a"b')  -> "a\"b"
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("${", "\\${")
+    return f'"{escaped}"'
+
+
+def flux_time(moment: datetime) -> str:
+    """A datetime as a Flux time literal, e.g. 2026-11-19T23:00:00Z (no quotes).
+
+    Built by our own code from a datetime object, never copied from input
+    text, so only digits, "-", ":", "T" and "Z" can end up in the query.
+    """
+    if moment.tzinfo is None:
+        raise ValueError("flux_time needs a datetime with a time zone (UTC)")
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 # Flux's range() needs a start and stops at "now" by default. We use fixed,
 # wide limits instead. The stop must be later than "now", because a message
 # timestamp may be a little ahead of the Pi clock (up to MAX_FUTURE_SKEW_SECONDS).
-RANGE_START = "1970-01-01T00:00:00Z"
-RANGE_STOP = "2100-01-01T00:00:00Z"
+RANGE_START = datetime(1970, 1, 1, tzinfo=timezone.utc)
+RANGE_STOP = datetime(2100, 1, 1, tzinfo=timezone.utc)
+
+
+def _presses_filter(station_id: str, field: str, result: Optional[str] = None) -> str:
+    """The filter for one field of `presses` of one station (optionally one result)."""
+    condition = (
+        f"r._measurement == {flux_string('presses')}"
+        f" and r.station_id == {flux_string(station_id)}"
+        f" and r._field == {flux_string(field)}"
+    )
+    if result is not None:
+        condition += f" and r.result == {flux_string(result)}"
+    return condition
+
+
+def _newest_row_query(bucket: str, condition: str) -> str:
+    """Query for the newest row that matches `condition`.
+
+    last() gives the newest row of each series (one series per tag
+    combination, e.g. result=accepted / result=cooldown). group() puts
+    them into one table, and sort + last() picks the newest of those.
+    """
+    return f"""
+from(bucket: {flux_string(bucket)})
+  |> range(start: {flux_time(RANGE_START)}, stop: {flux_time(RANGE_STOP)})
+  |> filter(fn: (r) => {condition})
+  |> last()
+  |> group()
+  |> sort(columns: ["_time"])
+  |> last()
+"""
+
+
+def last_accepted_query(bucket: str, station_id: str) -> str:
+    """Query: newest accepted press of the station."""
+    return _newest_row_query(bucket, _presses_filter(station_id, "count", "accepted"))
+
+
+def count_accepted_since_query(bucket: str, station_id: str, since_utc: datetime) -> str:
+    """Query: number of accepted presses of the station at or after `since_utc`."""
+    return f"""
+from(bucket: {flux_string(bucket)})
+  |> range(start: {flux_time(since_utc)}, stop: {flux_time(RANGE_STOP)})
+  |> filter(fn: (r) => {_presses_filter(station_id, "count", "accepted")})
+  |> group()
+  |> count()
+"""
+
+
+def newest_progress_query(bucket: str, station_id: str) -> str:
+    """Query: progress_count of the newest press of the station.
+
+    Newest press of ANY result: a rejected press also carries the
+    current progress_count.
+    """
+    return _newest_row_query(bucket, _presses_filter(station_id, "progress_count"))
+
+
+
+# Store 2: InfluxDB (main one)
 
 
 class InfluxStore:
@@ -250,71 +339,31 @@ class InfluxStore:
         except (ApiException, InfluxDBError, HTTPError, OSError) as error:
             raise self._fail(error) from error
 
-    def _query_last_value(self, flux_filter: str, params: dict) -> Optional[tuple]:
-        """Newest row that matches the filter, as (time, value), or None.
-
-        last() gives the newest row of each series (one series per tag
-        combination, e.g. result=accepted / result=cooldown). group() puts
-        them into one table, and sort + last() picks the newest of those.
-        """
-        query = f"""
-from(bucket: params.bucket)
-  |> range(start: {RANGE_START}, stop: {RANGE_STOP})
-  |> filter(fn: (r) => {flux_filter})
-  |> last()
-  |> group()
-  |> sort(columns: ["_time"])
-  |> last()
-"""
-        rows = self._query(query, params)
-        if not rows:
-            return None
-        return rows[-1].get_time(), rows[-1].get_value()
-
-    def _query(self, query: str, params: dict) -> list:
+    def query(self, query: str) -> list:
         """Run a Flux query and return all rows (FluxRecords) in one list.
 
-        Values like the station_id are passed as `params` (not pasted into the
-        text), so a strange value can never change the query itself.
+        Build `query` only with the functions above (flux_string, flux_time).
         """
         try:
-            tables = self.query_api.query(query, params={"bucket": self.bucket, **params})
+            tables = self.query_api.query(query)
         except (ApiException, InfluxDBError, HTTPError, OSError) as error:
             raise self._fail(error) from error
         return [row for table in tables for row in table.records]
 
     def last_accepted_time(self, station_id: str) -> Optional[datetime]:
-        found = self._query_last_value(
-            'r._measurement == "presses" and r.station_id == params.station_id '
-            'and r.result == "accepted" and r._field == "count"',
-            {"station_id": station_id},
-        )
-        if found is None:
+        rows = self.query(last_accepted_query(self.bucket, station_id))
+        if not rows:
             return None
-        return found[0].astimezone(timezone.utc)
+        return rows[-1].get_time().astimezone(timezone.utc)
 
     def count_accepted_since(self, station_id: str, since_utc: datetime) -> int:
-        query = f"""
-from(bucket: params.bucket)
-  |> range(start: params.since, stop: {RANGE_STOP})
-  |> filter(fn: (r) => r._measurement == "presses" and r.station_id == params.station_id
-                       and r.result == "accepted" and r._field == "count")
-  |> group()
-  |> count()
-"""
-        rows = self._query(query, {"station_id": station_id, "since": since_utc})
+        rows = self.query(count_accepted_since_query(self.bucket, station_id, since_utc))
         # No accepted press in that time = no rows at all.
         return int(rows[0].get_value()) if rows else 0
 
     def newest_progress_count(self, station_id: str) -> Optional[int]:
-        # Newest press of ANY result: a rejected press also carries the
-        # current progress_count.
-        found = self._query_last_value(
-            'r._measurement == "presses" and r.station_id == params.station_id '
-            'and r._field == "progress_count"',
-            {"station_id": station_id},
-        )
-        return None if found is None else int(found[1])
+        rows = self.query(newest_progress_query(self.bucket, station_id))
+        return int(rows[-1].get_value()) if rows else None
 
 
 

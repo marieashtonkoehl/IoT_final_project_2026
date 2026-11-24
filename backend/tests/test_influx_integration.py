@@ -17,7 +17,15 @@ from influxdb_client import InfluxDBClient
 
 from app import storage
 from app.config import settings
+from app.storage import flux_string, flux_time
 from conftest import make_press, utc
+
+# The day all test timestamps fall on, as a Flux range (OSS has no query
+# parameters, so the values are written into the query text).
+ONE_DAY = (
+    f"|> range(start: {flux_time(utc('2026-11-20T00:00:00Z'))}, "
+    f"stop: {flux_time(utc('2026-11-21T00:00:00Z'))})"
+)
 
 
 def _influx_reachable() -> bool:
@@ -82,11 +90,10 @@ def test_presses_and_restart_with_real_influxdb(client, influx_store):
     assert client.get("/status").json()["count"] == 0
 
     assert storage.count_accepted_since("deusto-ria-01", utc("2026-11-20T00:00:00Z")) == 3
-    rows = influx_store._query(
-        'from(bucket: params.bucket) |> range(start: 2026-11-20T00:00:00Z, stop: 2026-11-21T00:00:00Z)'
+    rows = influx_store.query(
+        f"from(bucket: {flux_string(influx_store.bucket)}) {ONE_DAY}"
         ' |> filter(fn: (r) => r._measurement == "presses" and r.result == "cooldown"'
-        ' and r._field == "count")',
-        {},
+        ' and r._field == "count")'
     )
     assert len(rows) == 2  # both rejected presses were stored
 
@@ -102,10 +109,7 @@ def test_reading_with_real_influxdb(client, influx_store):
     }
     assert client.post("/readings", json=body).status_code == 200
 
-    rows = influx_store._query(
-        'from(bucket: params.bucket) |> range(start: 2026-11-20T00:00:00Z, stop: 2026-11-21T00:00:00Z)',
-        {},
-    )
+    rows = influx_store.query(f"from(bucket: {flux_string(influx_store.bucket)}) {ONE_DAY}")
     values = {(r.get_measurement(), r.get_field()): r.get_value() for r in rows}
     assert values == {
         ("environment", "humidity_pct"): 61.0,
