@@ -285,7 +285,12 @@ class ApiSender:
                 while not self.buffer:
                     self.cond.wait()
                 item = self.buffer[0]
-            if not self._post(*item):
+            try:
+                done = self._post(*item)
+            except Exception:
+                log.exception("Unexpected error while sending %s, retrying.", item[0])
+                done = False
+            if not done:
                 time.sleep(RETRY_DELAY)
                 continue
             with self.cond:
