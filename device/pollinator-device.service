@@ -1,7 +1,7 @@
 [Unit]
 Description=Pollinator Station device script (#26)
-After=network-online.target docker.service
-Wants=network-online.target
+After=network-online.target docker.service time-sync.target
+Wants=network-online.target time-sync.target
 
 [Service]
 Type=simple
