@@ -1,0 +1,4 @@
+requests==2.34.2
+paho-mqtt==2.2.0
+python-dotenv==1.2.4
+smbus2==0.6.1

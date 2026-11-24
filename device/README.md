@@ -70,9 +70,11 @@ SGP30 (#30), LED bar commands (#28) and the latch (#41) are not included yet.
 On the Pi, from the repo folder, venv on, back end running:
 
 ```bash
-pip install requests "paho-mqtt>=2" python-dotenv smbus2   # once
+pip install -r device/requirements.txt
 python device/station.py
 ```
+
+The device also imports the system-installed `grove` library; create the venv with `python3 -m venv --system-site-packages .venv` so it can access it.
 
 Watch the status: `mosquitto_sub -h localhost -t 'pollinator/#' -v`
 
