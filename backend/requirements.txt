@@ -1,0 +1,9 @@
+# Back end packages. Install with: pip install -r backend/requirements.txt
+fastapi==0.163.1        # the web framework (also installs pydantic)
+uvicorn==0.54.0         # the server that runs the FastAPI app
+python-dotenv==1.2.4    # reads settings from .env
+influxdb-client==1.50.0 # writes to and reads from InfluxDB 2
+
+# For the tests
+pytest==9.2.0
+httpx==0.28.1           # needed by FastAPI's TestClient
