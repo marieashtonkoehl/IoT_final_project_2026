@@ -435,7 +435,6 @@ def main():
             now = time.monotonic()
 
             # Button: one press -> one POST /presses
-            # Button: one press -> one POST /presses.
             # Debounce: a change within DEBOUNCE of the last one is contact
             # bounce and is ignored, when pressing AND when releasing.
             if hw.btn:
