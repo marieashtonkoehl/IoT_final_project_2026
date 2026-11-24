@@ -322,9 +322,12 @@ class ApiSender:
             return True
 
         if path == "/presses":
-            answer = response.json()
-            log.info("Press %s -> %s, count %s/%s", body["timestamp"], answer["result"],
-                     answer["count"], answer["presses_per_plant"])
+            try:
+                answer = response.json()
+                log.info("Press %s -> %s, count %s/%s", body["timestamp"], answer["result"],
+                         answer["count"], answer["presses_per_plant"])
+            except (ValueError, KeyError) as err:
+                log.warning("Press %s sent, but the answer looked wrong (%s)", body["timestamp"], err)
         else:
             fields = [k for k in body if k not in ("station_id", "timestamp")]
             log.info("Reading sent: %s", ", ".join(fields))
