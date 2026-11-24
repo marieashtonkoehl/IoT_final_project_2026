@@ -82,7 +82,7 @@ MOTION_WINDOW = 600      # seconds for motion_count_10min
 HTTP_TIMEOUT = 5         # seconds to wait for the back end
 RETRY_DELAY = 5          # seconds between tries while the back end is down
 BUFFER_MAX = 1000        # messages kept while the back end is down
-DEBOUNCE = 0.05          # seconds after a button press
+DEBOUNCE = 0.05          # seconds: button changes closer together are contact bounce
 
 STATUS_TOPIC = f"pollinator/{STATION_ID}/status"
 
@@ -313,9 +313,13 @@ class ApiSender:
             log.info("Back end reachable again. Sending %d waiting message(s).",
                      len(self.buffer))
 
-        if response.status_code >= 500:           # server problem: try again
-            log.warning("%s: server error %d, retrying.", path, response.status_code)
+        if response.status_code == 503:           # database down: try again later
+            log.warning("%s: back end busy (503), retrying.", path)
             return False
+
+        if response.status_code >= 500:           # back-end bug: retrying won't help
+            log.error("%s failed (%d), dropping it: %s", path, response.status_code, response.text)
+            return True
 
         if response.status_code != 200:           # 400 / 422: would never work
             log.error("%s rejected (%d): %s", path, response.status_code, response.text)
@@ -422,6 +426,7 @@ def main():
     motion_since_sent = 0           # PIR triggers since the last timed reading
     last_pir_sent = pir_ready_at
     last_btn = hw.btn.read() if hw.btn else 1 - sensors.PRESSED
+    last_btn_change = 0.0           # time of the last accepted button change (debounce)
     last_pir = 0
 
     log.info("Running. Ctrl+C to stop.")
@@ -430,22 +435,27 @@ def main():
             now = time.monotonic()
 
             # Button: one press -> one POST /presses
+            # Button: one press -> one POST /presses.
+            # Debounce: a change within DEBOUNCE of the last one is contact
+            # bounce and is ignored, when pressing AND when releasing.
             if hw.btn:
                 state = hw.btn.read()
-                if state != last_btn and state == sensors.PRESSED:
-                    timestamp = utc_now_iso()          # moment of the press
-                    if hw.btn_led:
-                        hw.btn_led.write(1)
-                    body = {"station_id": STATION_ID, "timestamp": timestamp}
-                    body.update(read_values(hw, sgp, PRESS_GROUPS))
-                    # null during the PIR warm-up: no reliable count yet
-                    body["motion_count_10min"] = len(motion_times) if (hw.pir and pir_ready) else None
-                    sender.send("/presses", body)
-                    log.info("Button pressed at %s", timestamp)
-                    time.sleep(DEBOUNCE)
-                elif state != last_btn and hw.btn_led:
-                    hw.btn_led.write(0)
-                last_btn = state
+                if state != last_btn and now - last_btn_change >= DEBOUNCE:
+                    last_btn_change = now
+                    last_btn = state
+                    if state == sensors.PRESSED:
+                        timestamp = utc_now_iso()      # moment of the press
+                        if hw.btn_led:
+                            hw.btn_led.write(1)
+                        body = {"station_id": STATION_ID, "timestamp": timestamp}
+                        body.update(read_values(hw, sgp, PRESS_GROUPS))
+                        # null during the PIR warm-up: no reliable count yet
+                        body["motion_count_10min"] = (
+                            len(motion_times) if (hw.pir and pir_ready) else None)
+                        sender.send("/presses", body)
+                        log.info("Button pressed at %s", timestamp)
+                    elif hw.btn_led:
+                        hw.btn_led.write(0)
 
             # PIR: count rising edges (only after the warm-up)
             if hw.pir:

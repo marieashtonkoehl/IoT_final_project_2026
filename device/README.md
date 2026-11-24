@@ -99,6 +99,7 @@ INFO    PIR warm-up done: counting motion now.
 `pollinator-device.service` assumes user `haem` and the repo in `/home/haem/IoT_final_project_2026`.
 
 ```bash
+sudo systemctl enable systemd-time-wait-sync    # once: lets the service wait for the synced clock
 sudo cp device/pollinator-device.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now pollinator-device
