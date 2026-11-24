@@ -10,6 +10,8 @@ device/pollinator-device.service). It:
   that are due at that moment.
 - reads the SGP30 every 1 s in the background and ignores the first ~15 s
   (warm-up). The driver itself comes with #30.
+- ignores the PIR for the first 60 s after start (warm-up: a freshly powered
+  PIR can trigger falsely while it settles).
 - publishes the station status on MQTT pollinator/<station_id>/status
   (retained), with a last will that says online = false.
 
@@ -75,6 +77,7 @@ PRESS_GROUPS = {"temp_humidity", "light", "pressure", "soil_moisture", "sgp30"}
 # Fixed values (not in .env)
 SGP30_READ_EVERY = 1.0   # seconds; the SGP30 needs this for its baseline
 SGP30_WARMUP = 15        # seconds after start whose values are ignored
+PIR_WARMUP = 60          # seconds after start in which PIR triggers are ignored
 MOTION_WINDOW = 600      # seconds for motion_count_10min
 HTTP_TIMEOUT = 5         # seconds to wait for the back end
 RETRY_DELAY = 5          # seconds between tries while the back end is down
@@ -167,12 +170,14 @@ class Sgp30Reader:
         self.hw = hw
         self._lock = threading.Lock()
         self._latest = (None, None)        # (tvoc_ppb, eco2_ppm)
+        self.available = False             # True once the SGP30 thread runs
 
     def start(self):
         read_fn = getattr(sensors, "read_sgp30", None)
         if read_fn is None or self.hw.bus is None:
-            log.info("SGP30 not added yet (#30): tvoc_ppb / eco2_ppm are sent as null.")
+            log.info("SGP30 not added yet (#30): no timed SGP30 readings, presses send null.")
             return
+        self.available = True
         threading.Thread(target=self._run, args=(read_fn,), daemon=True).start()
 
     def latest(self):
@@ -328,6 +333,7 @@ class StatusPublisher:
 
     def __init__(self):
         self.locker = "locked"   # TODO(#41): set from the servo state
+        self.stopping = False    # True while we disconnect on purpose
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                                   client_id=f"device-{STATION_ID}")
         # Sent by the broker if the script disappears without saying goodbye
@@ -351,7 +357,8 @@ class StatusPublisher:
         self.publish(online=True)          # also after every reconnect
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties):
-        log.warning("MQTT disconnected (%s), reconnecting...", reason_code)
+        if not self.stopping:
+            log.warning("MQTT disconnected (%s), reconnecting...", reason_code)
 
     def publish(self, online):
         message = {"station_id": STATION_ID, "timestamp": utc_now_iso(),
@@ -359,6 +366,7 @@ class StatusPublisher:
         return self.client.publish(STATUS_TOPIC, json.dumps(message), qos=0, retain=True)
 
     def stop(self):
+        self.stopping = True
         # A clean disconnect does not trigger the last will, so say "offline" ourselves.
         try:
             self.publish(online=False).wait_for_publish(timeout=2)
@@ -382,20 +390,29 @@ def main():
     status.start()
     sgp = Sgp30Reader(hw)
     sgp.start()
+    if not sgp.available:
+        INTERVALS.pop("sgp30")          # nothing to send until #30
     # TODO(#41): move the latch to "locked" here (docs/architecture.md: device script start)
 
     # systemd stops the service with SIGTERM: exit cleanly (finally block below)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
     now = time.monotonic()
-    # First timed reading right away, except SGP30 (warm-up) and PIR (needs a full interval)
+    # PIR warm-up: triggers before this moment are ignored
+    pir_ready_at = now + PIR_WARMUP
+    pir_ready = False
+    if hw.pir:
+        log.info("PIR warm-up: motion is counted from %d s after start.", PIR_WARMUP)
+
+    # First timed reading right away, except SGP30 (warm-up) and PIR (warm-up + a full interval)
     next_due = {group: now for group in INTERVALS}
-    next_due["sgp30"] = now + max(SGP30_WARMUP, INTERVALS["sgp30"])
-    next_due["pir_count"] = now + INTERVALS["pir_count"]
+    if "sgp30" in next_due:
+        next_due["sgp30"] = now + max(SGP30_WARMUP, INTERVALS["sgp30"])
+    next_due["pir_count"] = pir_ready_at + INTERVALS["pir_count"]
 
     motion_times = deque()          # PIR triggers of the last 10 min (for presses)
     motion_since_sent = 0           # PIR triggers since the last timed reading
-    last_pir_sent = now
+    last_pir_sent = pir_ready_at
     last_btn = hw.btn.read() if hw.btn else 1 - sensors.PRESSED
     last_pir = 0
 
@@ -413,7 +430,8 @@ def main():
                         hw.btn_led.write(1)
                     body = {"station_id": STATION_ID, "timestamp": timestamp}
                     body.update(read_values(hw, sgp, PRESS_GROUPS))
-                    body["motion_count_10min"] = len(motion_times) if hw.pir else None
+                    # null during the PIR warm-up: no reliable count yet
+                    body["motion_count_10min"] = len(motion_times) if (hw.pir and pir_ready) else None
                     sender.send("/presses", body)
                     log.info("Button pressed at %s", timestamp)
                     time.sleep(DEBOUNCE)
@@ -421,10 +439,13 @@ def main():
                     hw.btn_led.write(0)
                 last_btn = state
 
-            # PIR: count rising edges
+            # PIR: count rising edges (only after the warm-up)
             if hw.pir:
+                if not pir_ready and now >= pir_ready_at:
+                    pir_ready = True
+                    log.info("PIR warm-up done: counting motion now.")
                 state = hw.pir.read()
-                if state == 1 and last_pir == 0:
+                if state == 1 and last_pir == 0 and pir_ready:
                     motion_times.append(now)
                     motion_since_sent += 1
                 last_pir = state
