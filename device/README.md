@@ -52,3 +52,54 @@ Bar full!
 - A missing I2C sensor shows `FAIL` at the start and `--` in the status lines; the rest keeps running.
 - An unplugged analogue sensor (light, soil) gives no error, just a value near 0.
 - Ctrl+C: LED bar and button LED off, servo back to LOCKED.
+
+## Device script (#26)
+
+`station.py` is the real device script (sensor drivers in `sensors.py`). It runs all the time and:
+
+- sends every button press to `POST /presses` with all current sensor values (timestamp = moment of the press)
+- sends timed readings to `POST /readings`; interval per sensor from `READ_INTERVAL_*_SECONDS` in `.env` (defaults are used while empty)
+- publishes the station status on MQTT `pollinator/<station_id>/status` (retained), last will = `online: false`
+- ignores the PIR for the first 60 s after start (warm-up), so `motion_count_10min` is `null` during that time
+- does not decide anything itself: cooldown, daily cap and plants are decided by the back end
+
+SGP30 (#30), LED bar commands (#28) and the latch (#41) are not included yet.
+
+### Run it by hand
+
+On the Pi, from the repo folder, venv on, back end running:
+
+```bash
+pip install requests "paho-mqtt>=2" python-dotenv smbus2   # once
+python device/station.py
+```
+
+Watch the status: `mosquitto_sub -h localhost -t 'pollinator/#' -v`
+
+For tests, set short intervals in `.env` (e.g. `10`) and `PRESS_COOLDOWN_SECONDS=10`.
+
+Expected log:
+
+```text
+INFO      OK    BME280 (0x76/0x77)
+INFO    SGP30 not added yet (#30): no timed SGP30 readings, presses send null.
+INFO    PIR warm-up: motion is counted from 60 s after start.
+INFO    Running. Ctrl+C to stop.
+INFO    MQTT connected to localhost:1883
+INFO    Reading sent: temperature_c, humidity_pct, pressure_hpa, light_pct, soil_moisture_pct
+INFO    Button pressed at 2026-11-24T14:09:13Z
+INFO    Press 2026-11-24T14:09:13Z -> accepted, count 1/10
+INFO    PIR warm-up done: counting motion now.
+```
+
+### Run it as a service (starts after reboot)
+
+`pollinator-device.service` assumes user `haem` and the repo in `/home/haem/IoT_final_project_2026`.
+
+```bash
+sudo cp device/pollinator-device.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pollinator-device
+journalctl -u pollinator-device -f              # live log
+sudo systemctl disable --now pollinator-device  # turn off again
+```
