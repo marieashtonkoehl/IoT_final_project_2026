@@ -202,7 +202,7 @@ class MemoryStore:
 # Building Flux queries (plain text, no database needed, easy to test)
 
 # InfluxDB OSS 2.x has no query parameters (`params.xxx` only works in
-# InfluxDB Cloud). So the values have to go INTO the query text. To keep a
+# InfluxDB Cloud). So values have to go INTO the query text. To keep a
 # strange value (e.g. a station_id with a " in it) from changing the query
 # itself ("injection"), every text value goes through flux_string(), and
 # every time through flux_time().
