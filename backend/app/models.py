@@ -46,13 +46,14 @@ READING_EXAMPLE = {
 
 
 
-# Requests (device script to back end)
+# Messages in (device / Pi to back end, over REST or MQTT)
 
 
-class SensorMessage(BaseModel):
-    """Fields shared by a press and a timed reading.
+class StationMessage(BaseModel):
+    """Fields EVERY incoming message has: station_id and timestamp.
 
-    Not used as a request body on its own: PressIn and ReadingIn build on it.
+    Not used on its own: the REST and MQTT messages below build on it, so the
+    timestamp is turned into UTC in one place only.
     """
 
     # extra="forbid": an unknown field (e.g. a typo like "temp_c") is an error
@@ -63,6 +64,26 @@ class SensorMessage(BaseModel):
     timestamp: datetime = Field(
         description="When it happened. ISO 8601, UTC, with Z, e.g. 2026-11-20T11:42:05Z."
     )
+
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_in_utc(cls, value: datetime) -> datetime:
+        """Make every timestamp a UTC time.
+
+        "...Z" already is UTC. A timestamp without a time zone is taken as UTC.
+        One with another offset (e.g. +01:00) is converted to UTC.
+        This way the rules can always compare timestamps safely.
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+
+class SensorMessage(StationMessage):
+    """Fields shared by a press and a timed reading.
+
+    Not used as a request body on its own: PressIn and ReadingIn build on it.
+    """
 
     # Optional[float] = None means: a number, or null, or left out.
     temperature_c: Optional[float] = Field(None, description="Temperature, °C.")
@@ -78,19 +99,6 @@ class SensorMessage(BaseModel):
     eco2_ppm: Optional[int] = Field(
         None, description="Estimated CO2 (eCO2) from the SGP30, ppm."
     )
-
-    @field_validator("timestamp")
-    @classmethod
-    def timestamp_in_utc(cls, value: datetime) -> datetime:
-        """Make every timestamp a UTC time.
-
-        "...Z" already is UTC. A timestamp without a time zone is taken as UTC.
-        One with another offset (e.g. +01:00) is converted to UTC.
-        This way the rules can always compare timestamps safely.
-        """
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
 
 
 class PressIn(SensorMessage):
@@ -114,6 +122,30 @@ class ReadingIn(SensorMessage):
     interval_s: Optional[int] = Field(
         None, ge=0, description="Length of the PIR counting interval, seconds."
     )
+
+
+# MQTT messages (checked by mqtt.py, not by FastAPI). Formats: docs/data-model.md.
+
+LockerValue = Literal["locked", "open"]
+
+
+class StationStatusIn(StationMessage):
+    """Topic pollinator/<station_id>/status: device script online? locker open?
+
+    Also the device script's MQTT last will (then "online": false).
+    """
+
+    online: bool
+    locker: LockerValue
+
+
+class PiHealthIn(StationMessage):
+    """Topic pollinator/<station_id>/pi_health: sent by the Pi status script (cron)."""
+
+    # Required numbers: a Pi health message without them is useless.
+    cpu_temp_c: float
+    cpu_load_1m: float
+    disk_used_pct: float
 
 
 
@@ -152,15 +184,22 @@ class ReadingOut(BaseModel):
 
 
 class StatusOut(BaseModel):
-    """Answer to `GET /status`: progress toward the next plant.
+    """Answer to `GET /status`: progress toward the next plant, and station status.
 
-    Station online / locker state come later (they need MQTT, issue #34).
+    online / locker / status_time come from the newest MQTT status message.
     """
 
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
-                {"count": 7, "presses_per_plant": 10, "last_press": "2026-11-20T11:42:05Z"}
+                {
+                    "count": 7,
+                    "presses_per_plant": 10,
+                    "last_press": "2026-11-20T11:42:05Z",
+                    "online": True,
+                    "locker": "locked",
+                    "status_time": "2026-11-20T11:58:13Z",
+                }
             ]
         }
     )
@@ -169,6 +208,16 @@ class StatusOut(BaseModel):
     presses_per_plant: int = Field(description="Accepted presses needed for one plant.")
     last_press: Optional[datetime] = Field(
         description="Time of the newest accepted press (UTC), or null if there is none yet."
+    )
+    online: Optional[bool] = Field(
+        description="Device script online (from MQTT status), or null if no status "
+        "has arrived yet since the back end started."
+    )
+    locker: Optional[LockerValue] = Field(
+        description="Plant cupboard: locked / open, or null if no status yet."
+    )
+    status_time: Optional[datetime] = Field(
+        description="Timestamp of the newest status message (UTC), or null if none yet."
     )
 
 

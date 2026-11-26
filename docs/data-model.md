@@ -88,6 +88,8 @@ SGP30 (issue #30): the device script reads it every 1 s, because the sensor need
 
 The broker (Mosquitto) runs in Docker on the Pi. Its port is bound to `127.0.0.1`. MQTT is used only for station status, Pi health and commands. Presses and readings use REST.
 
+Client IDs: `pollinator-backend` (back end), `pollinator-device` (device script), `pollinator-pi-health` (Pi status script). Each must be different: the broker drops an existing connection when a second client connects with the same ID.
+
 ### Topics
 
 Pattern: `pollinator/<station_id>/<type>`.
@@ -118,17 +120,19 @@ Pi health (every 5 min, from cron):
 LED command:
 
 ```json
-{ "command_id": "c-000123", "timestamp": "2026-11-20T11:42:06Z", "level": 7, "max": 10 }
+{ "command_id": "c-3f2b9c1e8d0a4b7c9e6f5a4d3c2b1a09", "timestamp": "2026-11-20T11:42:06Z", "level": 7, "max": 10 }
 ```
 
 Unlock command:
 
 ```json
-{ "command_id": "c-000124", "timestamp": "2026-11-20T11:58:12Z", "trigger": "target" }
+{ "command_id": "c-8a7b6c5d4e3f42a1b0c9d8e7f6a5b4c3", "timestamp": "2026-11-20T11:58:12Z", "trigger": "target" }
 ```
 
 - `trigger` is `target` or `manual`.
-- `command_id` format (to confirm). The device ignores a `command_id` it has already handled, because QoS 1 can deliver a command twice.
+- `command_id` is `"c-"` + a random UUID4 in hex (32 characters). The device ignores a `command_id` it has already handled, because QoS 1 can deliver a command twice. A random ID instead of a counter, so the IDs stay unique after a back end restart.
+- The back end sends `cmd/led` with the current level again when it receives status `"online": true` (device script started or reconnected), because commands are not retained.
+- While the broker is down, commands are skipped (not queued): the back end logs it and the press is still stored and answered normally. A late unlock could open the cupboard when nobody is there.
 - `level` is absolute, so a repeated LED command does no harm. An unlock command while the locker is already open does nothing.
 - After an unlock, the device script locks the latch again after 60 s and publishes status `locker: locked`.
 - When the device script starts, it always moves the latch to locked first and publishes `locker: locked`, so the locker cannot stay open after a crash or power loss.

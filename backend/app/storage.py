@@ -19,6 +19,7 @@ A record is a plain dict, the format the InfluxDB client understands:
      "time": datetime(2026, 11, 20, 11, 42, 5, tzinfo=timezone.utc)}
 """
 
+import threading
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
@@ -29,7 +30,7 @@ from influxdb_client.rest import ApiException
 from urllib3.exceptions import HTTPError
 
 from app.config import settings
-from app.models import PressIn, ReadingIn
+from app.models import PiHealthIn, PressIn, ReadingIn
 
 
 class StorageUnavailable(Exception):
@@ -51,6 +52,9 @@ FLOAT_FIELDS = {
     "light_pct",
     "pressure_hpa",
     "soil_moisture_pct",
+    "cpu_temp_c",
+    "cpu_load_1m",
+    "disk_used_pct",
 }
 INT_FIELDS = {
     "tvoc_ppb",
@@ -76,6 +80,9 @@ FOOTFALL_FIELDS = ["motion_count", "interval_s"]
 
 # Sensor values stored with every press (all environment ones + PIR count).
 PRESS_SENSOR_FIELDS = ENVIRONMENT_FIELDS + ["motion_count_10min"]
+
+# Pi health values (from MQTT) that go to `pi_status`.
+PI_STATUS_FIELDS = ["cpu_temp_c", "cpu_load_1m", "disk_used_pct"]
 
 
 
@@ -146,6 +153,16 @@ def reading_records(reading: ReadingIn) -> List[dict]:
                 }
             )
     return records
+
+
+def pi_status_record(health: PiHealthIn) -> dict:
+    """The `pi_status` point for one Pi health message (MQTT, every 5 min)."""
+    return {
+        "measurement": "pi_status",
+        "tags": {"station_id": health.station_id},
+        "fields": clean_fields({name: getattr(health, name) for name in PI_STATUS_FIELDS}),
+        "time": health.timestamp,
+    }
 
 
 def restore_progress(newest_progress_count: Optional[int], presses_per_plant: int) -> int:
@@ -376,6 +393,13 @@ _current_store = None
 # Missing = not restored from the database yet.
 _progress: Dict[str, int] = {}
 
+# Two threads use _progress: web requests (POST /presses, GET /status) and
+# the MQTT thread (sends the LED level again when the device comes online).
+# The lock makes sure only one of them reads or changes it at a time, so the
+# count is never restored twice or read halfway through a change.
+# RLock: the same thread may take it again (get inside a with-block is fine).
+_progress_lock = threading.RLock()
+
 
 def use_store(store) -> None:
     """Switch to another store (the tests use a fresh MemoryStore per test).
@@ -385,7 +409,8 @@ def use_store(store) -> None:
     """
     global _current_store
     _current_store = store
-    _progress.clear()
+    with _progress_lock:
+        _progress.clear()
 
 
 def _store():
@@ -428,10 +453,13 @@ def get_progress_count(station_id: str, presses_per_plant: int) -> int:
     start-up): if the Pi starts the back end before InfluxDB is ready, the
     back end still starts, and the count is restored on the first request.
     """
-    if station_id not in _progress:
-        newest = _store().newest_progress_count(station_id)
-        _progress[station_id] = restore_progress(newest, presses_per_plant)
-    return _progress[station_id]
+    with _progress_lock:
+        if station_id not in _progress:
+            # If InfluxDB is down this raises, nothing is remembered, and the
+            # next call tries again.
+            newest = _store().newest_progress_count(station_id)
+            _progress[station_id] = restore_progress(newest, presses_per_plant)
+        return _progress[station_id]
 
 
 def set_progress_count(station_id: str, count: int) -> None:
@@ -440,7 +468,8 @@ def set_progress_count(station_id: str, count: int) -> None:
     Only in memory: the database already has it as progress_count of the
     press that was just saved.
     """
-    _progress[station_id] = count
+    with _progress_lock:
+        _progress[station_id] = count
 
 
 def save_press(press: PressIn, result: str, progress_count: int) -> None:
@@ -451,3 +480,8 @@ def save_press(press: PressIn, result: str, progress_count: int) -> None:
 def save_reading(reading: ReadingIn) -> None:
     """Write one timed reading to `environment` and/or `footfall`."""
     _store().write(reading_records(reading))
+
+
+def save_pi_health(health: PiHealthIn) -> None:
+    """Write one Pi health message to `pi_status`."""
+    _store().write([pi_status_record(health)])

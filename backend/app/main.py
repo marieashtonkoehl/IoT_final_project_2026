@@ -7,9 +7,11 @@ This file only connects the pieces:
 - models.py : shape of the JSON in and out
 - rules.py  : cooldown / daily cap / presses-per-plant decisions
 - storage.py: reading and writing the database (InfluxDB)
+- mqtt.py   : station status, Pi health and commands (MQTT broker)
 - config.py : settings from .env
 """
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,10 +20,12 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import rules, storage
+from app import mqtt, rules, storage
 from app.config import REPO_ROOT, settings
 from app.models import HealthOut, PressIn, PressOut, ReadingIn, ReadingOut, StatusOut
 from app.conditions import air_quality_level, pollinator_level
+
+log = logging.getLogger(__name__)
 
 FRONTEND_DIR: Path = REPO_ROOT / "frontend"
 
@@ -46,12 +50,17 @@ def get_latest_reading():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Runs around the whole life of the server: close the database at the end.
+    """Runs around the whole life of the server.
 
+    Start: connect to the MQTT broker in the background (mqtt.start never
+    blocks or crashes, so the back end also starts while the broker is down).
     No database work at start-up on purpose: the progress count is restored
     on the first request (see storage.get_progress_count).
+    End: disconnect from the broker, close the database.
     """
+    mqtt.start()
     yield
+    mqtt.stop()
     storage.close()
 
 
@@ -121,7 +130,7 @@ def check_not_in_future(timestamp: datetime) -> None:
     first) with their original time. A small margin
     (MAX_FUTURE_SKEW_SECONDS) allows for clocks that are slightly apart.
     """
-    seconds_ahead = (timestamp - now_utc()).total_seconds()
+    seconds_ahead = rules.seconds_ahead(timestamp, now_utc())
     if seconds_ahead > settings.max_future_skew_seconds:
         raise HTTPException(
             # 422 = "the message is well-formed but its content can't be used".
@@ -237,9 +246,13 @@ def post_press(press: PressIn) -> PressOut:
     storage.save_press(press, result, count)
     storage.set_progress_count(station_id, count)
 
+    # Commands are sent AFTER saving: the press is stored first. If the
+    # broker is down, mqtt logs a warning and we answer normally (200): the
+    # press itself worked. The LED gets the right level again with the next
+    # press, or when the device script reports "online": true.
+    # Rejected presses (cooldown / daily_cap) send nothing: the level is the same.
     if result == "accepted":
-        # TODO(MQTT): publish an LED command (cmd/led, QoS 1) with level=count.
-        pass
+        mqtt.send_led(count, settings.presses_per_plant)
 
     # 4. Answer, so it still shows the full count (e.g. 10 of 10).
     answer = PressOut(
@@ -252,10 +265,17 @@ def post_press(press: PressIn) -> PressOut:
     #    The database keeps progress_count=10 for this press; storage turns
     #    that into 0 when it restores the count after a restart.
     if rules.is_plant_earned(count, settings.presses_per_plant):
-        # TODO(MQTT): publish an unlock command (cmd/unlock, QoS 1, trigger=target).
-        # TODO(InfluxDB): write a `rewards` point (trigger=target).
+        if not mqtt.send_unlock("target"):
+            # ERROR, not warning: the visitor earned a plant, but the cupboard
+            # stays closed and the count still goes back to 0 below. An
+            # operator can open it with the manual unlock (web page, #60).
+            log.error(
+                "Plant earned but unlock not sent: broker not connected. "
+                "Use the manual unlock on the web page."
+            )
+        # TODO(InfluxDB): write a `rewards` point (trigger=target), issue #41.
         storage.set_progress_count(station_id, 0)
-        # TODO(MQTT): publish an LED command with level=0.
+        mqtt.send_led(0, settings.presses_per_plant)
 
     return answer
 
@@ -289,12 +309,16 @@ def post_reading(reading: ReadingIn) -> ReadingOut:
     "/status",
     response_model=StatusOut,
     tags=["web page"],
-    summary="Progress toward the next plant",
+    summary="Progress toward the next plant and station status",
     description=(
         "Current `count` (accepted presses since the last unlock), "
         "`presses_per_plant`, and `last_press` (time of the newest accepted "
         "press, or `null`). Correct after a restart too: read from InfluxDB.\n\n"
-        "Station online / locker state come later (MQTT, issue #34). "
+        "Station status from the newest MQTT status message: `online` "
+        "(`true` / `false`), `locker` (`locked` / `open`) and `status_time` "
+        "(its timestamp). All three are `null` until a status has arrived. "
+        "After a back end restart the broker sends the retained status again "
+        "right after connecting.\n\n"
         "No login yet (issue #60)."
     ),
     responses=DATABASE_DOWN_RESPONSE,
@@ -302,10 +326,14 @@ def post_reading(reading: ReadingIn) -> ReadingOut:
 def get_status() -> StatusOut:
     # Same storage functions as POST /presses, so both always agree.
     station_id = settings.station_id
+    station = mqtt.get_station_status()
     return StatusOut(
         count=storage.get_progress_count(station_id, settings.presses_per_plant),
         presses_per_plant=settings.presses_per_plant,
         last_press=storage.get_last_accepted_time(station_id),
+        online=station["online"],
+        locker=station["locker"],
+        status_time=station["timestamp"],
     )
 
 

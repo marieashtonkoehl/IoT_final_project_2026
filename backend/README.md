@@ -23,11 +23,12 @@ Endpoints, messages and measurements → [docs/architecture.md](../docs/architec
 | `app/main.py` | Creates the FastAPI app, defines the endpoints, serves `frontend/` at `/` |
 | `app/models.py` | Pydantic models: the JSON the API accepts and returns (as in `docs/data-model.md`) |
 | `app/rules.py` | Cooldown, daily cap (Europe/Madrid day) and presses-per-plant decisions |
-| `app/storage.py` | Writes presses and readings to InfluxDB and reads them back (last accepted press, presses today, progress count). Also has a small in-memory store used by the tests |
-| `app/config.py` | Reads `STATION_ID`, `PRESS_COOLDOWN_SECONDS`, `DAILY_PRESS_CAP`, `PRESSES_PER_PLANT`, `MAX_FUTURE_SKEW_SECONDS` and `DB_URL` / `DB_ORG` / `DB_BUCKET` / `DB_TOKEN` from the repo-root `.env` |
+| `app/storage.py` | Writes presses, readings and Pi health to InfluxDB and reads them back (last accepted press, presses today, progress count). Also has a small in-memory store used by the tests |
+| `app/mqtt.py` | MQTT client (paho-mqtt): receives station status (kept in memory for `GET /status`) and Pi health (stored in `pi_status`), sends LED and unlock commands. Reconnects on its own |
+| `app/config.py` | Reads `STATION_ID`, `PRESS_COOLDOWN_SECONDS`, `DAILY_PRESS_CAP`, `PRESSES_PER_PLANT`, `MAX_FUTURE_SKEW_SECONDS`, `DB_URL` / `DB_ORG` / `DB_BUCKET` / `DB_TOKEN` and `BROKER_HOST` / `BROKER_PORT` from the repo-root `.env` |
 | `tests/` | pytest tests |
 
-Endpoints so far: `GET /health`, `POST /presses`, `POST /readings`, `GET /status`. Presses and readings are stored in InfluxDB. Not done yet: settings from the database (#27), rewards (#41) and MQTT (#28, #34). Look for `TODO(InfluxDB)` and `TODO(MQTT)` in `app/main.py`.
+Endpoints so far: `GET /health`, `POST /presses`, `POST /readings`, `GET /status`. Presses and readings are stored in InfluxDB. MQTT (#34): status and Pi health in, LED and unlock commands out. The back end also starts while the broker is down and connects when it comes up. Not done yet: settings from the database (#27) and rewards (#41). Look for `TODO(InfluxDB)` in `app/main.py`.
 
 ## How to run
 

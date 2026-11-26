@@ -298,7 +298,15 @@ def test_rules_use_message_time_not_arrival_time(client, monkeypatch):
 def test_status_with_no_presses(client):
     response = client.get("/status")
     assert response.status_code == 200
-    assert response.json() == {"count": 0, "presses_per_plant": 3, "last_press": None}
+    assert response.json() == {
+        "count": 0,
+        "presses_per_plant": 3,
+        "last_press": None,
+        # no MQTT status received yet (see test_mqtt.py)
+        "online": None,
+        "locker": None,
+        "status_time": None,
+    }
 
 
 def test_status_after_presses(client):
@@ -310,6 +318,9 @@ def test_status_after_presses(client):
         "count": 2,
         "presses_per_plant": 3,
         "last_press": "2026-11-20T11:00:20Z",  # newest ACCEPTED press
+        "online": None,
+        "locker": None,
+        "status_time": None,
     }
 
 
