@@ -29,7 +29,7 @@ PIR_PIN = 16                 # D16: PIR
 DETECT_CM = int(sys.argv[1]) if len(sys.argv) > 1 else 100
 MEASURE_EVERY = 0.06         # s; the sensor needs ~60 ms between measurements
 ENTER_READINGS = 2           # "close" readings in a row to count someone
-LEAVE_READINGS = 5           # "far" readings in a row before the next count
+LEAVE_READINGS = 10          # "far" readings in a row (~0.6 s) before the next count
 STATUS_EVERY = 1.0           # s between status lines
 
 ECHO_START_TIMEOUT = 0.002   # s: echo must start within 2 ms after the trigger
@@ -86,25 +86,22 @@ def main():
             cm = measure_cm(sig)
             measurements += 1
             if cm is None:
-                no_echo += 1
-                close = False
+                no_echo += 1          # no echo: unknown, keep the streaks as they are
             else:
                 last_cm = cm
                 min_cm = cm if min_cm is None else min(min_cm, cm)
-                close = cm < DETECT_CM
-
-            if close:
-                close_streak += 1
-                far_streak = 0
-                if not someone_there and close_streak >= ENTER_READINGS:
-                    someone_there = True
-                    us_count += 1
-                    print(f"{now_txt}  ULTRASONIC  #{us_count:3d}  at {cm:5.0f} cm")
-            else:
-                far_streak += 1
-                close_streak = 0
-                if someone_there and far_streak >= LEAVE_READINGS:
-                    someone_there = False
+                if cm < DETECT_CM:
+                    close_streak += 1
+                    far_streak = 0
+                    if not someone_there and close_streak >= ENTER_READINGS:
+                        someone_there = True
+                        us_count += 1
+                        print(f"{now_txt}  ULTRASONIC  #{us_count:3d}  at {cm:5.0f} cm")
+                else:
+                    far_streak += 1
+                    close_streak = 0
+                    if someone_there and far_streak >= LEAVE_READINGS:
+                        someone_there = False
 
             # PIR: count rising edges
             state = pir.read()
