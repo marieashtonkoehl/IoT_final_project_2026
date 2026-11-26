@@ -193,9 +193,16 @@ class Sgp30Reader:
     def _run(self, read_fn):
         started = time.monotonic()
         next_read = started
+        needs_init = False      # True after the sensor stopped answering
         while True:
             try:
                 with self.hw.i2c_lock:
+                    if needs_init:
+                        # After a power loss the SGP30 needs IAQ_INIT again
+                        # (Sensirion: init after every power-up), then warm-up again.
+                        sensors.init_sgp30(self.hw.bus)
+                        started = time.monotonic()
+                        needs_init = False
                     tvoc, eco2 = read_fn(self.hw.bus)
                 sensor_ok("SGP30")
                 if time.monotonic() - started >= SGP30_WARMUP:
@@ -203,6 +210,8 @@ class Sgp30Reader:
                         self._latest = (int(tvoc), int(eco2))
             except Exception as err:
                 sensor_failed("SGP30", err)
+                if isinstance(err, OSError):    # no answer: maybe power loss -> init again
+                    needs_init = True           # (not on a single CRC glitch)
                 with self._lock:
                     self._latest = (None, None)
             next_read += SGP30_READ_EVERY

@@ -79,6 +79,7 @@ The device also imports the system-installed `grove` library; create the venv wi
 Watch the status: `mosquitto_sub -h localhost -t 'pollinator/#' -v`
 
 For tests, set short intervals in `.env` (e.g. `10`) and `PRESS_COOLDOWN_SECONDS=10`.
+Don't run `device/tests/test_sgp30.py` while `station.py` is running: both talk to the SGP30 and restart its measurement.
 
 Expected log:
 
