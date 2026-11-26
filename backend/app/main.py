@@ -21,8 +21,27 @@ from fastapi.staticfiles import StaticFiles
 from app import rules, storage
 from app.config import REPO_ROOT, settings
 from app.models import HealthOut, PressIn, PressOut, ReadingIn, ReadingOut, StatusOut
+from app.conditions import air_quality_level, pollinator_level
 
 FRONTEND_DIR: Path = REPO_ROOT / "frontend"
+
+# TODO: fake "latest values" until storage has a "latest reading" query
+# (newest `environment` point from InfluxDB).
+# Key names = fields of `environment` in docs/data-model.md.
+LATEST_READING = {
+    "temperature_c": 24.0,
+    "humidity_pct": 50.0,
+    "light_pct": 80.0,
+    "pressure_hpa": 1013.0,
+    "soil_moisture_pct": 40.0,
+    "tvoc_ppb": 100,
+    "eco2_ppm": 600,
+}
+
+
+def get_latest_reading():
+    """Return the latest sensor reading (fake for now)."""
+    return LATEST_READING
 
 
 @asynccontextmanager
@@ -289,6 +308,28 @@ def get_status() -> StatusOut:
         last_press=storage.get_last_accepted_time(station_id),
     )
 
+
+@app.get(
+    "/conditions",
+    tags=["web page"],
+    summary="Latest sensor values and good / fair / poor levels",
+    description=(
+        "`readings`: latest value of every sensor. Plus two levels: "
+        "`pollinator_conditions` (temperature, light, humidity) and "
+        "`air_quality` (TVOC, eCO2). Each level is `good`, `fair`, `poor` "
+        "or `unknown`.\n\n"
+        "For now the values are fake (fixed numbers). No login yet (issue #60)."
+    ),
+)
+def get_conditions() -> dict:
+    r = get_latest_reading() or {}
+    return {
+        "readings": r,
+        "pollinator_conditions": pollinator_level(
+            r.get("temperature_c"), r.get("light_pct"), r.get("humidity_pct")
+        ),
+        "air_quality": air_quality_level(r.get("tvoc_ppb"), r.get("eco2_ppm")),
+    }
 
 
 # Web page
