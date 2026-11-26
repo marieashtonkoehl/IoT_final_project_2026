@@ -183,6 +183,14 @@ def test_queries_use_no_params(name):
     assert 'r.station_id == "deusto-ria-01"' in query
 
 
+@pytest.mark.parametrize("name", sorted(ALL_QUERIES))
+def test_queries_return_only_time_and_value(name):
+    # Our `result` tag must not reach the answer: it clashes with InfluxDB's
+    # own `result` column ("duplicated names" warning on every query).
+    lines = [line.strip() for line in ALL_QUERIES[name].strip().splitlines()]
+    assert lines[-1] == '|> keep(columns: ["_time", "_value"])'  # the LAST step
+
+
 def test_count_query_starts_at_the_given_time():
     query = ALL_QUERIES["count_since"]
     assert "range(start: 2026-11-19T23:00:00Z, stop: 2100-01-01T00:00:00Z)" in query

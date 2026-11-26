@@ -256,13 +256,19 @@ RANGE_STOP = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
 # Careful with the `result` tag of `presses`: InfluxDB adds its own column
-# called `result` (the name of the query result) to every answer. So a row
-# has two columns named "result", the client warns "duplicated names", and
-# record.values["result"] gives only one of them (not always ours).
-# The queries below only FILTER on the tag, so this is no problem today.
-# If you need the tag in Python: rename it in Flux first, e.g.
+# called `result` (the name of the query result) to every answer. If our tag
+# is in the answer too, a row has two columns named "result": the client
+# warns "duplicated names" on every query, and record.values["result"] gives
+# only one of them (not always ours).
+# So every query below ends with KEEP_USED_COLUMNS: it returns only the
+# columns we read (_time, _value), and our tag never reaches the answer.
+# The filter on the tag still works: it runs before keep().
+# If you ever need the tag in Python: rename it in Flux first, e.g.
 #   |> rename(columns: {result: "press_result"})
-# or read it by position from record.row.
+# and add the new name to keep(), or read it by position from record.row.
+KEEP_USED_COLUMNS = '|> keep(columns: ["_time", "_value"])'
+
+
 def _presses_filter(station_id: str, field: str, result: Optional[str] = None) -> str:
     """The filter for one field of `presses` of one station (optionally one result)."""
     condition = (
@@ -290,6 +296,7 @@ from(bucket: {flux_string(bucket)})
   |> group()
   |> sort(columns: ["_time"])
   |> last()
+  {KEEP_USED_COLUMNS}
 """
 
 
@@ -306,6 +313,7 @@ from(bucket: {flux_string(bucket)})
   |> filter(fn: (r) => {_presses_filter(station_id, "count", "accepted")})
   |> group()
   |> count()
+  {KEEP_USED_COLUMNS}
 """
 
 

@@ -154,7 +154,7 @@ InfluxDB 2, in Docker on the Pi. It is the only database.
 - On start, the back end restores the current progress from `progress_count` of the newest `presses` point. The press that earns a plant is stored with `progress_count` = `presses_per_plant` (e.g. 10), so a restored value `>= presses_per_plant` means the new cycle starts at 0.
 - The daily cap counts `accepted` presses since midnight Europe/Madrid (the query converts that local midnight to UTC).
 - A sensor value that was `null` in the JSON is missing from the point (see general rules).
-- The tag `result` has the same name as the `result` column InfluxDB adds to every query answer, so `record.values["result"]` is ambiguous in Python: to read the tag, rename it in Flux first (e.g. `|> rename(columns: {result: "press_result"})`) or use `record.row`.
+- The tag `result` has the same name as the `result` column InfluxDB adds to every query answer. So the back end's queries end with `|> keep(columns: ["_time", "_value"])` and the tag never reaches the answer (otherwise: a "duplicated names" warning on every query, and `record.values["result"]` is ambiguous). To read the tag in Python, rename it in Flux first (e.g. `|> rename(columns: {result: "press_result"})`) and keep the new name, or use `record.row`.
 
 ### `environment`
 
