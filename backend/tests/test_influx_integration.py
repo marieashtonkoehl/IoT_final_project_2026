@@ -80,6 +80,10 @@ def test_presses_and_restart_with_real_influxdb(client, influx_store):
         "count": 2,
         "presses_per_plant": 3,
         "last_press": "2026-11-20T11:00:20Z",
+        # no MQTT status received yet (see test_mqtt.py)
+        "online": None,
+        "locker": None,
+        "status_time": None,
     }
     # Cooldown still applies after the restart (last accepted press read from InfluxDB).
     assert press("2026-11-20T11:00:25Z")["result"] == "cooldown"

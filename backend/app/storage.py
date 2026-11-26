@@ -255,6 +255,14 @@ RANGE_START = datetime(1970, 1, 1, tzinfo=timezone.utc)
 RANGE_STOP = datetime(2100, 1, 1, tzinfo=timezone.utc)
 
 
+# Careful with the `result` tag of `presses`: InfluxDB adds its own column
+# called `result` (the name of the query result) to every answer. So a row
+# has two columns named "result", the client warns "duplicated names", and
+# record.values["result"] gives only one of them (not always ours).
+# The queries below only FILTER on the tag, so this is no problem today.
+# If you need the tag in Python: rename it in Flux first, e.g.
+#   |> rename(columns: {result: "press_result"})
+# or read it by position from record.row.
 def _presses_filter(station_id: str, field: str, result: Optional[str] = None) -> str:
     """The filter for one field of `presses` of one station (optionally one result)."""
     condition = (
