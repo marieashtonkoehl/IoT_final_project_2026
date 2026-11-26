@@ -63,7 +63,7 @@ Bar full!
 - ignores the PIR for the first 60 s after start (warm-up), so `motion_count_10min` is `null` during that time
 - does not decide anything itself: cooldown, daily cap and plants are decided by the back end
 
-SGP30 (#30), LED bar commands (#28) and the latch (#41) are not included yet.
+LED bar commands (#28) and the latch (#41) are not included yet.
 
 ### Run it by hand
 
@@ -79,12 +79,13 @@ The device also imports the system-installed `grove` library; create the venv wi
 Watch the status: `mosquitto_sub -h localhost -t 'pollinator/#' -v`
 
 For tests, set short intervals in `.env` (e.g. `10`) and `PRESS_COOLDOWN_SECONDS=10`.
+Don't run `device/tests/test_sgp30.py` while `station.py` is running: both talk to the SGP30 and restart its measurement.
 
 Expected log:
 
 ```text
 INFO      OK    BME280 (0x76/0x77)
-INFO    SGP30 not added yet (#30): no timed SGP30 readings, presses send null.
+INFO      OK    SGP30 (0x58), warm-up 15 s
 INFO    PIR warm-up: motion is counted from 60 s after start.
 INFO    Running. Ctrl+C to stop.
 INFO    MQTT connected to localhost:1883

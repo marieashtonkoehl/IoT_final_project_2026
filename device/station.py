@@ -9,7 +9,7 @@ device/pollinator-device.service). It:
   (READ_INTERVAL_*_SECONDS in .env). A reading only contains the sensors
   that are due at that moment.
 - reads the SGP30 every 1 s in the background and ignores the first ~15 s
-  (warm-up). The driver itself comes with #30.
+  (warm-up).
 - ignores the PIR for the first 60 s after start (warm-up: a freshly powered
   PIR can trigger falsely while it settles).
 - publishes the station status on MQTT pollinator/<station_id>/status
@@ -162,7 +162,7 @@ class Hardware:
 class Sgp30Reader:
     """Reads the SGP30 every 1 s and keeps the latest value.
 
-    Until #30 adds sensors.read_sgp30(), the thread does not start and
+    If the SGP30 does not answer at start, the thread does not start and
     tvoc_ppb / eco2_ppm are sent as null.
     """
 
@@ -173,12 +173,18 @@ class Sgp30Reader:
         self.available = False             # True once the SGP30 thread runs
 
     def start(self):
-        read_fn = getattr(sensors, "read_sgp30", None)
-        if read_fn is None or self.hw.bus is None:
-            log.info("SGP30 not added yet (#30): no timed SGP30 readings, presses send null.")
+        if self.hw.bus is None:
+            log.warning("  FAIL  SGP30 (0x58): no I2C bus. tvoc_ppb / eco2_ppm are sent as null.")
             return
+        try:
+            with self.hw.i2c_lock:
+                sensors.init_sgp30(self.hw.bus)
+        except Exception as err:   # missing, unplugged...
+            log.warning("  FAIL  SGP30 (0x58): %s. tvoc_ppb / eco2_ppm are sent as null.", err)
+            return
+        log.info("  OK    SGP30 (0x58), warm-up %d s", SGP30_WARMUP)
         self.available = True
-        threading.Thread(target=self._run, args=(read_fn,), daemon=True).start()
+        threading.Thread(target=self._run, args=(sensors.read_sgp30,), daemon=True).start()
 
     def latest(self):
         with self._lock:
@@ -187,9 +193,16 @@ class Sgp30Reader:
     def _run(self, read_fn):
         started = time.monotonic()
         next_read = started
+        needs_init = False      # True after the sensor stopped answering
         while True:
             try:
                 with self.hw.i2c_lock:
+                    if needs_init:
+                        # After a power loss the SGP30 needs IAQ_INIT again
+                        # (Sensirion: init after every power-up), then warm-up again.
+                        sensors.init_sgp30(self.hw.bus)
+                        started = time.monotonic()
+                        needs_init = False
                     tvoc, eco2 = read_fn(self.hw.bus)
                 sensor_ok("SGP30")
                 if time.monotonic() - started >= SGP30_WARMUP:
@@ -197,6 +210,8 @@ class Sgp30Reader:
                         self._latest = (int(tvoc), int(eco2))
             except Exception as err:
                 sensor_failed("SGP30", err)
+                if isinstance(err, OSError):    # no answer: maybe power loss -> init again
+                    needs_init = True           # (not on a single CRC glitch)
                 with self._lock:
                     self._latest = (None, None)
             next_read += SGP30_READ_EVERY
@@ -403,7 +418,7 @@ def main():
     sgp = Sgp30Reader(hw)
     sgp.start()
     if not sgp.available:
-        INTERVALS.pop("sgp30")          # nothing to send until #30
+        INTERVALS.pop("sgp30")          # SGP30 missing: no timed SGP30 readings
     # TODO(#41): move the latch to "locked" here (docs/architecture.md: device script start)
 
     # systemd stops the service with SIGTERM: exit cleanly (finally block below)
