@@ -40,7 +40,13 @@ LATEST_READING = {
 
 
 def get_latest_reading():
-    """Return the latest sensor reading (fake for now)."""
+    """Return the latest sensor reading from storage, falling back to sample values."""
+    try:
+        latest = storage.get_latest_environment(settings.station_id)
+        if latest:
+            return latest
+    except storage.StorageUnavailable:
+        pass
     return LATEST_READING
 
 
@@ -329,6 +335,38 @@ def get_conditions() -> dict:
             r.get("temperature_c"), r.get("light_pct"), r.get("humidity_pct")
         ),
         "air_quality": air_quality_level(r.get("tvoc_ppb"), r.get("eco2_ppm")),
+    }
+
+@app.get(
+    "/api/dashboard",
+    tags=["web page"],
+    summary="Dashboard data: live readings, presses per day, and conditions over time",
+    description=(
+        "Returns `latest` sensor readings for live gauges, `presses_per_day`, "
+        "and `conditions` time series for the selected `range` (`24h`, `7d`, `30d`)."
+    ),
+    responses=DATABASE_DOWN_RESPONSE,
+)
+def get_dashboard(range: str = "24h") -> dict:
+    if range not in {"24h", "7d", "30d"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid range. Use one of: 24h, 7d, 30d.",
+        )
+
+    latest = get_latest_reading() or {}
+    try:
+        presses_per_day = storage.get_presses_per_day(settings.station_id, range)
+        conditions = storage.get_environment_series(settings.station_id, range)
+    except storage.StorageUnavailable:
+        presses_per_day = []
+        conditions = {}
+
+    return {
+        "range": range,
+        "latest": latest,
+        "presses_per_day": presses_per_day,
+        "conditions": conditions,
     }
 
 

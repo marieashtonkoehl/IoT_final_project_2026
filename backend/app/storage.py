@@ -197,6 +197,62 @@ class MemoryStore:
         presses = self._presses(station_id)
         return presses[-1]["fields"]["progress_count"] if presses else None
 
+    def latest_environment(self, station_id: str) -> Dict[str, object]:
+        latest: Dict[str, object] = {}
+        env_rows = sorted(
+            [
+                r for r in self.records
+                if r.get("measurement") == "environment"
+                and r.get("tags", {}).get("station_id") == station_id
+            ],
+            key=lambda r: r["time"],
+        )
+        for row in env_rows:
+            for field in ENVIRONMENT_FIELDS:
+                if field in row.get("fields", {}):
+                    latest[field] = row["fields"][field]
+        return latest
+
+    def environment_series(self, station_id: str, range_str: str = "24h") -> Dict[str, List[dict]]:
+        norm = normalize_range(range_str)
+        hours = {"24h": 24, "7d": 24 * 7, "30d": 24 * 30}[norm]
+        cutoff = datetime.now(timezone.utc).timestamp() - hours * 3600
+        series: Dict[str, List[dict]] = {field: [] for field in ENVIRONMENT_FIELDS}
+
+        rows = sorted(
+            [
+                r for r in self.records
+                if r.get("measurement") == "environment"
+                and r.get("tags", {}).get("station_id") == station_id
+                and r["time"].timestamp() >= cutoff
+            ],
+            key=lambda r: r["time"],
+        )
+        for row in rows:
+            t_str = row["time"].astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            for field in ENVIRONMENT_FIELDS:
+                if field in row.get("fields", {}):
+                    series[field].append({"time": t_str, "value": row["fields"][field]})
+        return series
+
+    def presses_per_day(self, station_id: str, range_str: str = "24h") -> List[dict]:
+        norm = normalize_range(range_str)
+        days = {"24h": 1, "7d": 7, "30d": 30}[norm]
+        cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
+        totals: Dict[str, int] = {}
+
+        rows = [
+            r for r in self.records
+            if r.get("measurement") == "presses"
+            and r.get("tags", {}).get("station_id") == station_id
+            and r["time"].timestamp() >= cutoff
+        ]
+        for row in rows:
+            day_key = row["time"].astimezone(timezone.utc).strftime("%Y-%m-%d")
+            val = int(row.get("fields", {}).get("count", 1))
+            totals[day_key] = totals.get(day_key, 0) + val
+
+        return [{"date": d, "count": totals[d]} for d in sorted(totals.keys())]
 
 
 # Building Flux queries (plain text, no database needed, easy to test)
@@ -292,7 +348,57 @@ def newest_progress_query(bucket: str, station_id: str) -> str:
     """
     return _newest_row_query(bucket, _presses_filter(station_id, "progress_count"))
 
+RANGE_DURATIONS = {
+    "24h": "24h",
+    "7d": "7d",
+    "30d": "30d",
+}
 
+
+def normalize_range(range_str: Optional[str]) -> str:
+    """Return a supported range ('24h', '7d', '30d'), defaulting to '24h'."""
+    if range_str in RANGE_DURATIONS:
+        return range_str
+    return "24h"
+
+
+def latest_environment_query(bucket: str, station_id: str) -> str:
+    """Query: newest value of each field in `environment` for `station_id`."""
+    fields_expr = " or ".join(
+        f"r._field == {flux_string(f)}" for f in ENVIRONMENT_FIELDS
+    )
+    return f"""
+from(bucket: {flux_string(bucket)})
+  |> range(start: {flux_time(RANGE_START)}, stop: {flux_time(RANGE_STOP)})
+  |> filter(fn: (r) => r._measurement == {flux_string("environment")} and r.station_id == {flux_string(station_id)} and ({fields_expr}))
+  |> last()
+"""
+
+
+def environment_series_query(bucket: str, station_id: str, range_str: str) -> str:
+    """Query: time series for `environment` fields over `range_str`."""
+    window = RANGE_DURATIONS[normalize_range(range_str)]
+    fields_expr = " or ".join(
+        f"r._field == {flux_string(f)}" for f in ENVIRONMENT_FIELDS
+    )
+    return f"""
+from(bucket: {flux_string(bucket)})
+  |> range(start: -{window}, stop: {flux_time(RANGE_STOP)})
+  |> filter(fn: (r) => r._measurement == {flux_string("environment")} and r.station_id == {flux_string(station_id)} and ({fields_expr}))
+  |> sort(columns: ["_time"])
+"""
+
+
+def presses_per_day_query(bucket: str, station_id: str, range_str: str) -> str:
+    """Query: daily sum of `count` in `presses` over `range_str`."""
+    window = RANGE_DURATIONS[normalize_range(range_str)]
+    return f"""
+from(bucket: {flux_string(bucket)})
+  |> range(start: -{window}, stop: {flux_time(RANGE_STOP)})
+  |> filter(fn: (r) => r._measurement == {flux_string("presses")} and r.station_id == {flux_string(station_id)} and r._field == {flux_string("count")})
+  |> aggregateWindow(every: 1d, fn: sum, createEmpty: false)
+  |> sort(columns: ["_time"])
+"""
 
 # Store 2: InfluxDB (main one)
 
@@ -364,6 +470,38 @@ class InfluxStore:
     def newest_progress_count(self, station_id: str) -> Optional[int]:
         rows = self.query(newest_progress_query(self.bucket, station_id))
         return int(rows[-1].get_value()) if rows else None
+    
+    def latest_environment(self, station_id: str) -> Dict[str, object]:
+        rows = self.query(latest_environment_query(self.bucket, station_id))
+        result: Dict[str, object] = {}
+        for row in rows:
+            field = row.get_field()
+            if field in ENVIRONMENT_FIELDS and row.get_value() is not None:
+                result[field] = row.get_value()
+        return result
+
+    def environment_series(self, station_id: str, range_str: str = "24h") -> Dict[str, List[dict]]:
+        rows = self.query(environment_series_query(self.bucket, station_id, range_str))
+        series: Dict[str, List[dict]] = {field: [] for field in ENVIRONMENT_FIELDS}
+        for row in rows:
+            field = row.get_field()
+            val = row.get_value()
+            t = row.get_time()
+            if field in series and val is not None and t is not None:
+                t_str = t.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
+                series[field].append({"time": t_str, "value": val})
+        return series
+
+    def presses_per_day(self, station_id: str, range_str: str = "24h") -> List[dict]:
+        rows = self.query(presses_per_day_query(self.bucket, station_id, range_str))
+        by_day: Dict[str, int] = {}
+        for row in rows:
+            t = row.get_time()
+            val = row.get_value()
+            if t is not None and val is not None:
+                day_key = t.astimezone(timezone.utc).strftime("%Y-%m-%d")
+                by_day[day_key] = by_day.get(day_key, 0) + int(val)
+        return [{"date": d, "count": by_day[d]} for d in sorted(by_day.keys())]
 
 
 
@@ -451,3 +589,18 @@ def save_press(press: PressIn, result: str, progress_count: int) -> None:
 def save_reading(reading: ReadingIn) -> None:
     """Write one timed reading to `environment` and/or `footfall`."""
     _store().write(reading_records(reading))
+
+
+def get_latest_environment(station_id: str) -> Dict[str, object]:
+    """Latest environment sensor values from the active store."""
+    return _store().latest_environment(station_id)
+
+
+def get_environment_series(station_id: str, range_str: str = "24h") -> Dict[str, List[dict]]:
+    """Historical environment time series for `range_str` ('24h', '7d', '30d')."""
+    return _store().environment_series(station_id, range_str)
+
+
+def get_presses_per_day(station_id: str, range_str: str = "24h") -> List[dict]:
+    """Daily press counts for `range_str` ('24h', '7d', '30d')."""
+    return _store().presses_per_day(station_id, range_str)
