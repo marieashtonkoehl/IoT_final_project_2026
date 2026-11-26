@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard v1 — The Pollinator Station</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  :root {
+    --bg: #f4f7f2;
+    --card: #ffffff;
+    --text: #1b281d;
+    --muted: #5f6d63;
+    --line: #e2e8df;
+    --accent: #2e7d32;
+    --accent-soft: #e4f2e5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111612;
+      --card: #1a211b;
+      --text: #e6efe7;
+      --muted: #98a79c;
+      --line: #2b352d;
+      --accent: #66bb6a;
+      --accent-soft: #203623;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .container {
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  h1 {
+    margin: 0;
+    font-size: 1.6rem;
+  }
+  .subtitle {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .range-btn {
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .range-btn.active {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+  }
+  section {
+    margin-bottom: 28px;
+  }
+  h2 {
+    margin: 0 0 12px;
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+  }
+  .gauges-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  }
+  .card-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .gauge-box {
+    width: 100%;
+    height: 210px;
+  }
+  .chart-box {
+    width: 100%;
+    height: 260px;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-top: 12px;
+  }
+  .pill {
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <div>
+      <h1>Pollinator Station — Dashboard v1</h1>
+      <p class="subtitle">Live sensor gauges, daily button presses, and historical conditions</p>
+    </div>
+    <div class="controls" role="group" aria-label="Time range selector">
+      <button class="range-btn active" data-range="24h">24 h</button>
+      <button class="range-btn" data-range="7d">7 d</button>
+      <button class="range-btn" data-range="30d">30 d</button>
+    </div>
+  </header>
+
+  <div class="meta">
+    <span id="source-pill" class="pill">Checking API…</span>
+    <span id="last-refresh">Last gauge refresh: –</span>
+  </div>
+
+  <section>
+    <h2>Live gauges (refresh every 10 s)</h2>
+    <div class="gauges-grid" id="gauges-grid"></div>
+  </section>
+
+  <section>
+    <h2>Presses per day</h2>
+    <div class="card">
+      <div class="card-title">Daily button presses</div>
+      <div class="chart-box" id="presses-chart"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Every condition over time</h2>
+    <div class="charts-grid" id="conditions-grid"></div>
+  </section>
+</div>
+
+<script>
+const API_URL = "/api/dashboard";
+const GAUGE_REFRESH_MS = 10000;
+
+const SENSORS = [
+  { key: "temperature_c", label: "Temperature", unit: "°C", min: 0, max: 45 },
+  { key: "humidity_pct", label: "Humidity", unit: "%", min: 0, max: 100 },
+  { key: "light_pct", label: "Light", unit: "%", min: 0, max: 100 },
+  { key: "pressure_hpa", label: "Pressure", unit: "hPa", min: 950, max: 1050 },
+  { key: "soil_moisture_pct", label: "Soil Moisture", unit: "%", min: 0, max: 100 },
+  { key: "tvoc_ppb", label: "TVOC", unit: "ppb", min: 0, max: 1000 },
+  { key: "eco2_ppm", label: "eCO2", unit: "ppm", min: 400, max: 2000 }
+];
+
+let currentRange = "24h";
+const gaugeCharts = {};
+const conditionCharts = {};
+let pressesChart = null;
+
+function initContainers() {
+  const gaugesGrid = document.getElementById("gauges-grid");
+  const conditionsGrid = document.getElementById("conditions-grid");
+
+  for (const s of SENSORS) {
+    const gCard = document.createElement("div");
+    gCard.className = "card";
+    gCard.innerHTML = `<div class="card-title">${s.label} (${s.unit})</div><div class="gauge-box" id="gauge-${s.key}"></div>`;
+    gaugesGrid.appendChild(gCard);
+    gaugeCharts[s.key] = echarts.init(document.getElementById(`gauge-${s.key}`));
+
+    const cCard = document.createElement("div");
+    cCard.className = "card";
+    cCard.innerHTML = `<div class="card-title">${s.label} over time (${s.unit})</div><div class="chart-box" id="cond-${s.key}"></div>`;
+    conditionsGrid.appendChild(cCard);
+    conditionCharts[s.key] = echarts.init(document.getElementById(`cond-${s.key}`));
+  }
+
+  pressesChart = echarts.init(document.getElementById("presses-chart"));
+
+  window.addEventListener("resize", () => {
+    Object.values(gaugeCharts).forEach(c => c.resize());
+    Object.values(conditionCharts).forEach(c => c.resize());
+    if (pressesChart) pressesChart.resize();
+  });
+}
+
+function renderGauges(latest) {
+  for (const s of SENSORS) {
+    const rawVal = latest && latest[s.key] !== undefined && latest[s.key] !== null
+      ? Number(latest[s.key])
+      : null;
+
+    gaugeCharts[s.key].setOption({
+      series: [{
+        type: "gauge",
+        min: s.min,
+        max: s.max,
+        progress: { show: true, width: 12 },
+        axisLine: { lineStyle: { width: 12 } },
+        axisTick: { show: false },
+        splitLine: { length: 8, lineStyle: { width: 2 } },
+        axisLabel: { distance: 16, fontSize: 10 },
+        pointer: { width: 4, length: "65%" },
+        detail: {
+          valueAnimation: true,
+          fontSize: 18,
+          offsetCenter: [0, "72%"],
+          formatter: v => rawVal === null ? "–" : `${Number(v).toFixed(s.unit === "ppb" || s.unit === "ppm" ? 0 : 1)} ${s.unit}`
+        },
+        data: [{ value: rawVal ?? s.min, name: s.label }]
+      }]
+    });
+  }
+  document.getElementById("last-refresh").textContent =
+    "Last gauge refresh: " + new Date().toLocaleTimeString();
+}
+
+function renderPressesPerDay(pressesPerDay) {
+  const days = (pressesPerDay || []).map(item => item.date);
+  const counts = (pressesPerDay || []).map(item => Number(item.count || 0));
+
+  pressesChart.setOption({
+    tooltip: { trigger: "axis" },
+    xAxis: { type: "category", data: days },
+    yAxis: { type: "value", minInterval: 1 },
+    series: [{
+      name: "Presses",
+      type: "bar",
+      data: counts,
+      barMaxWidth: 36
+    }]
+  });
+}
+
+function renderConditionsOverTime(seriesBySensor) {
+  for (const s of SENSORS) {
+    const points = (seriesBySensor && seriesBySensor[s.key]) || [];
+    const times = points.map(p => p.time);
+    const values = points.map(p => p.value);
+
+    conditionCharts[s.key].setOption({
+      tooltip: { trigger: "axis" },
+      xAxis: { type: "category", data: times },
+      yAxis: { type: "value", scale: true },
+      series: [{
+        name: s.label,
+        type: "line",
+        smooth: true,
+        showSymbol: false,
+        data: values
+      }]
+    });
+  }
+}
+
+function buildDemoData(range) {
+  const daysCount = range === "30d" ? 10 : range === "7d" ? 7 : 1;
+  const now = Date.now();
+  const pressesPerDay = [];
+
+  for (let i = daysCount - 1; i >= 0; i--) {
+    const d = new Date(now - i * 86400000);
+    const label = d.toISOString().slice(0, 10);
+    pressesPerDay.push({
+      date: label,
+      count: Math.floor(4 + Math.random() * 14)
+    });
+  }
+
+  const steps = range === "24h" ? 12 : range === "7d" ? 14 : 15;
+  const stepMs = range === "24h" ? 2 * 3600000 : 12 * 3600000;
+  const conditions = {};
+  const latest = {};
+
+  for (const s of SENSORS) {
+    const pts = [];
+    const base = (s.min + s.max) / 2;
+    const amp = (s.max - s.min) * 0.12;
+    for (let i = steps; i >= 0; i--) {
+      const t = new Date(now - i * stepMs);
+      const val = Number((base + Math.sin(i * 0.7) * amp + (Math.random() - 0.5) * amp * 0.4).toFixed(1));
+      pts.push({
+        time: range === "24h" ? t.toTimeString().slice(0, 5) : t.toISOString().slice(5, 16).replace("T", " "),
+        value: val
+      });
+    }
+    conditions[s.key] = pts;
+    latest[s.key] = pts[pts.length - 1].value;
+  }
+
+  return { latest, presses_per_day: pressesPerDay, conditions };
+}
+
+async function loadDashboard(range, onlyGauges = false) {
+  try {
+    const res = await fetch(`${API_URL}?range=${encodeURIComponent(range)}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    renderGauges(data.latest || {});
+    if (!onlyGauges) {
+      renderPressesPerDay(data.presses_per_day || []);
+      renderConditionsOverTime(data.conditions || {});
+    }
+    const pill = document.getElementById("source-pill");
+    pill.textContent = `Live API (${range})`;
+  } catch (err) {
+    const demo = buildDemoData(range);
+    renderGauges(demo.latest);
+    if (!onlyGauges) {
+      renderPressesPerDay(demo.presses_per_day);
+      renderConditionsOverTime(demo.conditions);
+    }
+    const pill = document.getElementById("source-pill");
+    pill.textContent = `Demo fallback (${range})`;
+  }
+}
+
+document.querySelectorAll(".range-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".range-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentRange = btn.dataset.range;
+    loadDashboard(currentRange, false);
+  });
+});
+
+initContainers();
+loadDashboard(currentRange, false);
+setInterval(() => loadDashboard(currentRange, true), GAUGE_REFRESH_MS);
+</script>
+</body>
+</html>
