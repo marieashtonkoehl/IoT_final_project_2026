@@ -57,6 +57,17 @@ class Settings:
     # settings are printed or appear in an error message.
     db_token: str = field(repr=False)
 
+    # Server address, used by `python -m app` (app/__main__.py)
+    api_host: str  # 0.0.0.0 = reachable from other computers on the network
+    api_port: int
+    # Folder for the log files (backend.log). See app/logging_setup.py.
+    log_dir: Path
+
+
+def _get_log_dir() -> Path:
+    """LOG_DIR from .env. Empty = logs/ in the repo root; relative = from the repo root."""
+    return REPO_ROOT / _get_str("LOG_DIR", "logs")
+
 
 def load_settings() -> Settings:
     """Build a Settings object from the environment (and .env)."""
@@ -71,6 +82,9 @@ def load_settings() -> Settings:
         db_bucket=_get_str("DB_BUCKET", "pollinator"),
         # No default: the token only exists in .env on the Pi.
         db_token=_get_str("DB_TOKEN", ""),
+        api_host=_get_str("API_HOST", "0.0.0.0"),
+        api_port=_get_int("API_PORT", 8000),
+        log_dir=_get_log_dir(),
     )
 
 

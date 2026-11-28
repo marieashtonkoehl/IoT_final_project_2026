@@ -7,8 +7,9 @@ Setup files and instructions for running the station **on the Raspberry Pi**. Ev
 | `compose.yaml` | Docker Compose file with two services: **InfluxDB 2** (bucket `pollinator`, retention "never", port `127.0.0.1:8086`) and **Mosquitto** (MQTT broker, port `127.0.0.1:1883`). Both restart automatically |
 | `mosquitto/mosquitto.conf` | Mosquitto config: `listener 1883`, no login (safe: port bound to `127.0.0.1`), persistence on |
 | `data/` | Created on the Pi. Database and broker data + logs. Ignored by git |
-| systemd unit files *(planned)* | One for the back end (FastAPI), one for the device script: start at boot, restart on crash. Logs: `journalctl -u <service>` |
-| crontab line *(planned)* | Runs the Pi status script in `scripts/` every 5 min with the project's `.venv` Python |
+| `pollinator-backend.service` | systemd unit for the back end (FastAPI, `python -m app`): starts at boot, restarts on crash. See [Start everything after reboot](#start-everything-after-reboot-issue-37) |
+| `pollinator-device.service` | systemd unit for the device script (`device/station.py`): starts at boot after the clock is synced, restarts on crash |
+| crontab line *(added by #38)* | Runs the Pi status script in `scripts/` every 5 min with the project's `.venv` Python. See [Pi status script](#pi-status-script-cron-38) |
 
 Secrets (token, passwords) come only from `.env` in the repo root (template: `.env.example`), never from files in this folder.
 
@@ -213,3 +214,118 @@ sudo rm -rf data      # deletes all database and broker data (sudo: the folders 
 ```
 
 Then repeat steps 4 and 5.
+
+---
+
+## Start everything after reboot (issue #37)
+
+What starts what:
+
+| Program | Started by | Restarts on crash |
+|---|---|---|
+| InfluxDB, Mosquitto | Docker (`restart: unless-stopped` in `compose.yaml`), Docker itself starts at boot (step 0) | yes |
+| Back end (FastAPI) | systemd: `pollinator-backend.service` | yes, after 5 s |
+| Device script | systemd: `pollinator-device.service` | yes, after 5 s |
+| Pi status script | cron, every 5 min (#38) | (runs again 5 min later) |
+
+Both unit files assume user `haem` and the repo in `/home/haem/IoT_final_project_2026`. Different user or folder → change `User=`, `WorkingDirectory=` and `ExecStart=` in the file before copying it.
+
+Before you start: steps 0–5 above are done, `.venv` exists with the packages of `backend/requirements.txt` and `device/requirements.txt`, and both programs work when started by hand (see `backend/README.md` and `device/README.md`). Stop any copy you started by hand (`Ctrl+C`), otherwise port 8000 is already in use.
+
+### 1. Wait for the clock (once)
+
+```bash
+sudo systemctl enable systemd-time-wait-sync   # lets the device service wait until the clock is synced
+```
+
+Why: the Pi has no battery clock. Right after boot the time can be wrong, and presses sent with a wrong timestamp would break the cooldown rules.
+
+### 2. Install the two services
+
+```bash
+cd ~/IoT_final_project_2026
+sudo cp deploy/pollinator-backend.service deploy/pollinator-device.service /etc/systemd/system/   # systemd reads unit files from here
+sudo systemctl daemon-reload                     # tells systemd to read the new files
+sudo systemctl enable --now pollinator-backend   # starts it now and at every boot
+sudo systemctl enable --now pollinator-device
+```
+
+After changing a unit file in `deploy/`: copy it again, `sudo systemctl daemon-reload`, then `sudo systemctl restart <service>`.
+
+After `git pull` with new code: `sudo systemctl restart pollinator-backend pollinator-device` (the services keep running the old code until they restart).
+
+### 3. Check
+
+```bash
+systemctl status pollinator-backend   # expected: "active (running)"; q to quit
+systemctl status pollinator-device
+curl http://localhost:8000/health     # expected: {"status":"ok"}
+```
+
+`activating (auto-restart)` or `failed` → the program crashed. The reason is in the log (next step).
+
+### 4. Log files
+
+Both programs write their log to the console (→ systemd journal) and to a file:
+
+| File | Written by |
+|---|---|
+| `logs/backend.log` | back end, incl. uvicorn's start-up and access lines |
+| `logs/device.log` | device script |
+| `logs/pi_status.log` | Pi status script (#38) |
+
+`logs/` is in the repo root (change it with `LOG_DIR` in `.env`), and is ignored by git. Each file is **rotated**: at 1 MB it is renamed to `.log.1` (up to `.log.5`) and the oldest is deleted, so the logs never take more than ~6 MB each and the SD card can't fill up.
+
+```bash
+tail -f ~/IoT_final_project_2026/logs/backend.log   # follow the file live (Ctrl+C to stop watching)
+tail -n 50 ~/IoT_final_project_2026/logs/device.log # last 50 lines
+journalctl -u pollinator-backend -f                 # follow the journal (also shows crashes before logging started)
+journalctl -u pollinator-device --since "1 hour ago"
+journalctl -u pollinator-device -b                  # everything since the last boot
+```
+
+If a service does not start at all, look in `journalctl`: the file is only written once the program runs (e.g. a wrong path in `ExecStart=` only appears in the journal).
+
+### 5. Stop / turn off
+
+```bash
+sudo systemctl stop pollinator-device             # stop now; starts again at the next boot
+sudo systemctl restart pollinator-backend         # stop and start again
+sudo systemctl disable --now pollinator-device    # stop now AND don't start at boot any more
+```
+
+To start a program by hand for testing (e.g. `python device/station.py`), stop its service first. Two copies of the device script fight over the sensors, and two back ends over port 8000.
+
+### 6. Reboot test
+
+```bash
+sudo reboot
+```
+
+Wait ~1 min, SSH in again, then:
+
+```bash
+systemctl is-active pollinator-backend pollinator-device docker   # expected: active, three times
+docker compose -f ~/IoT_final_project_2026/deploy/compose.yaml ps # expected: influxdb and mosquitto "Up"
+curl http://localhost:8000/health                                 # expected: {"status":"ok"}
+tail -n 20 ~/IoT_final_project_2026/logs/device.log               # expected: new "Running." and "MQTT connected" lines with today's time
+docker exec mosquitto mosquitto_sub -t 'pollinator/+/status' -C 1 -W 5   # expected: status with "online": true
+```
+
+Then press the button once: `logs/device.log` shows `Press … -> accepted` (or `cooldown`) and `logs/backend.log` a `POST /presses` line.
+
+---
+
+## Pi status script (cron, #38)
+
+*Added by #38: the script does not exist yet. This is only the plan.*
+
+Planned crontab line (`crontab -e` as user `haem`; the script name is set in #38):
+
+```cron
+*/5 * * * * cd /home/haem/IoT_final_project_2026 && .venv/bin/python scripts/pi_status.py > /dev/null 2>&1
+```
+
+- `*/5 * * * *` = every 5 minutes. cron starts at boot by itself, so nothing else is needed after a reboot.
+- `> /dev/null 2>&1` throws away the console output: cron never rotates output files, so `>> file.log` would grow forever on the SD card.
+- Note for #38: the script writes its own rotating log to `<LOG_DIR>/pi_status.log`, same setup as the back end and device (`RotatingFileHandler`, 1 MB, 5 backups).

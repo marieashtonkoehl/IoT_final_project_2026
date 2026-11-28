@@ -97,13 +97,18 @@ INFO    PIR warm-up done: counting motion now.
 
 ### Run it as a service (starts after reboot)
 
-`pollinator-device.service` assumes user `haem` and the repo in `/home/haem/IoT_final_project_2026`.
+The unit file is [deploy/pollinator-device.service](../deploy/pollinator-device.service). It assumes user `haem` and the repo in `/home/haem/IoT_final_project_2026`.
 
 ```bash
 sudo systemctl enable systemd-time-wait-sync    # once: lets the service wait for the synced clock
-sudo cp device/pollinator-device.service /etc/systemd/system/
+sudo cp deploy/pollinator-device.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now pollinator-device
 journalctl -u pollinator-device -f              # live log
+tail -f logs/device.log                         # same log, from the file
 sudo systemctl disable --now pollinator-device  # turn off again
 ```
+
+The script also writes its log to `logs/device.log` in the repo root (`LOG_DIR` in `.env`), rotated at 1 MB with 5 old files kept. Also when started by hand.
+
+Full steps for both services (back end + device), log files and a reboot test → [deploy/README.md](../deploy/README.md#start-everything-after-reboot-issue-37).

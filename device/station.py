@@ -1,7 +1,7 @@
 """Pollinator Station device script (#26).
 
 Runs on the Raspberry Pi all the time (systemd service, see
-device/pollinator-device.service). It:
+deploy/pollinator-device.service). It:
 
 - sends every button press to the back end: POST /presses with all current
   sensor values. The timestamp is taken at the moment of the press.
@@ -33,6 +33,7 @@ import threading
 import time
 from collections import deque
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
@@ -91,6 +92,13 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-7s %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+# Also write the log to <LOG_DIR>/device.log (#37).
+LOG_DIR = REPO_ROOT / (os.getenv("LOG_DIR", "").strip() or "logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+_file_log = RotatingFileHandler(LOG_DIR / "device.log", maxBytes=1_000_000,
+                                backupCount=5, encoding="utf-8")
+_file_log.setFormatter(logging.root.handlers[0].formatter)   # same format as the console
+logging.getLogger().addHandler(_file_log)
 log = logging.getLogger("station")
 
 

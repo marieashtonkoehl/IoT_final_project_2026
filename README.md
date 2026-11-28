@@ -171,10 +171,12 @@ docker compose up -d
 
 ### 5. Start the programs so they run after a reboot
 
-- **Back end (FastAPI)** and **device script**: one systemd service each. Unit files go in `deploy/` *(not added yet)*. Copy them to `/etc/systemd/system/`, then `sudo systemctl enable --now <service>`.
-- **Pi status script**: one crontab line (`crontab -e`) that runs the script in `scripts/` every 5 minutes with the project's `.venv` Python.
+- **Back end (FastAPI)** and **device script**: one systemd service each, `deploy/pollinator-backend.service` and `deploy/pollinator-device.service`. Copy them to `/etc/systemd/system/`, then `sudo systemctl enable --now <service>`.
+- **InfluxDB and Mosquitto**: restarted by Docker (`restart: unless-stopped`).
+- **Pi status script** *(#38)*: one crontab line (`crontab -e`) that runs the script in `scripts/` every 5 minutes with the project's `.venv` Python.
+- **Logs**: `logs/backend.log`, `logs/device.log` in the repo root (rotated at 1 MB), and `journalctl -u <service>`.
 
-Details → [deploy/README.md](deploy/README.md).
+Step by step, with a reboot test → [deploy/README.md → Start everything after reboot](deploy/README.md#start-everything-after-reboot-issue-37).
 
 ### 6. Open it
 
