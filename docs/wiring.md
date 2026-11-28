@@ -31,5 +31,5 @@ The HAT has 6 digital ports, 4 analogue ports, 3 I2C ports, 1 PWM port and 1 UAR
 - The servo uses the hardware PWM pin (GPIO12) to avoid jitter on the Pi 5.
 - GPIO access via the Grove library / gpiozero (RPi.GPIO does not work on the Pi 5).
 - Test scripts for each component: `device/tests/`.
-- The PIR was replaced by the ultrasonic distance sensor (#75): in the test the PIR reported motion almost all the time and could not count passers-by. The ultrasonic sensor only sees a narrow beam (15°, 3–350 cm), so the station must be placed so that visitors walk through it. Device script change: #NEW.
+- The PIR was replaced by the ultrasonic distance sensor (#75): in the test the PIR reported motion almost all the time and could not count passers-by. The ultrasonic sensor only sees a narrow beam (15°, 3–350 cm), so the station must be placed so that visitors walk through it. Device script change: #88.
 - Plug Grove sensors in only while the Pi is off (hot-plugging can damage them).
