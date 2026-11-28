@@ -12,6 +12,8 @@ failed read into `null` (never 0).
 import struct
 import time
 
+from smbus2 import i2c_msg
+
 # Pins and addresses (see docs/wiring.md)
 BTN_LED_PIN = 5        # D5: LED inside the button
 BTN_PIN = 6            # D5 second pin: button
@@ -125,9 +127,54 @@ class BME280:
         return temp, hpa, hum
 
 
-# SGP30: TVOC + eCO2 (I2C 0x58)
+# SGP30: TVOC + eCO2 (I2C 0x58), from device/tests/test_sgp30.py (#30)
 
-# TODO(#30): add the SGP30 driver here once it has its own test in
-#   device/tests/. station.py already has the background thread that reads it
-#   every 1 s and skips the first ~15 s (warm-up); it only needs a function
-#   read_sgp30(bus) -> (tvoc_ppb, eco2_ppm).
+SGP30_ADDR = 0x58
+SGP30_IAQ_INIT = (0x20, 0x03)        # start the air-quality algorithm
+SGP30_MEASURE_IAQ = (0x20, 0x08)     # one measurement: eCO2 + TVOC
+
+
+def _crc8(data):
+    """CRC from the SGP30 datasheet: polynomial 0x31, start value 0xFF."""
+    crc = 0xFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x31) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
+    return crc
+
+
+def _sgp30_command(bus, cmd, wait_s, words=0):
+    """Send a 2-byte command, wait, read `words` 16-bit values (each with CRC).
+
+    Raises OSError if the sensor does not answer, ValueError on a CRC error.
+    """
+    bus.i2c_rdwr(i2c_msg.write(SGP30_ADDR, list(cmd)))
+    time.sleep(wait_s)
+    if words == 0:
+        return []
+    msg = i2c_msg.read(SGP30_ADDR, words * 3)
+    bus.i2c_rdwr(msg)
+    raw = list(msg)
+    values = []
+    for i in range(0, len(raw), 3):
+        high, low, crc = raw[i], raw[i + 1], raw[i + 2]
+        if _crc8([high, low]) != crc:
+            raise ValueError("SGP30 CRC error")
+        values.append((high << 8) | low)
+    return values
+
+
+def init_sgp30(bus):
+    """Start the SGP30 measurement. After this, call read_sgp30() every 1 s."""
+    _sgp30_command(bus, SGP30_IAQ_INIT, 0.01)
+
+
+def read_sgp30(bus):
+    """One SGP30 measurement. Returns (tvoc_ppb, eco2_ppm).
+
+    The first ~15 readings after init_sgp30() are fixed warm-up values
+    (0 ppb / 400 ppm); station.py discards them.
+    """
+    eco2_ppm, tvoc_ppb = _sgp30_command(bus, SGP30_MEASURE_IAQ, 0.012, words=2)
+    return tvoc_ppb, eco2_ppm
