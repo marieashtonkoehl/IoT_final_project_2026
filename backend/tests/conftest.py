@@ -22,7 +22,7 @@ from datetime import datetime, timezone  # noqa: E402  (imports after the settin
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import main, storage  # noqa: E402
+from app import logging_setup, main, storage  # noqa: E402
 from app.main import app  # noqa: E402
 
 # The "server time" in the tests. Later than every timestamp the tests use
@@ -57,6 +57,13 @@ def clock(monkeypatch):
     fake = {"now": utc(TEST_NOW)}
     monkeypatch.setattr(main, "now_utc", lambda: fake["now"])
     return fake
+
+
+@pytest.fixture(autouse=True)
+def no_log_files(monkeypatch):
+    """Tests never write logs/backend.log (a test using `with TestClient(app)`
+    would run the lifespan, and with it setup_logging)."""
+    monkeypatch.setattr(logging_setup, "setup_logging", lambda: None)
 
 
 @pytest.fixture

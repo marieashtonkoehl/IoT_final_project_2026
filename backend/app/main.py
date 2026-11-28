@@ -1,6 +1,8 @@
 """The FastAPI app: creates the app and defines the endpoints.
 
-Start it (from the backend/ folder):  uvicorn app.main:app --port 8000
+Start it (from the backend/ folder):  python -m app
+(host and port from API_HOST / API_PORT in .env, see app/__main__.py).
+For development:  uvicorn app.main:app --port 8000 --reload
 Then open http://localhost:8000/docs for the interactive API docs.
 
 This file only connects the pieces:
@@ -18,7 +20,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import rules, storage
+from app import logging_setup, rules, storage
 from app.config import REPO_ROOT, settings
 from app.models import HealthOut, PressIn, PressOut, ReadingIn, ReadingOut, StatusOut
 from app.conditions import air_quality_level, pollinator_level
@@ -51,6 +53,9 @@ async def lifespan(app: FastAPI):
     No database work at start-up on purpose: the progress count is restored
     on the first request (see storage.get_progress_count).
     """
+    # Here and not at import: runs after uvicorn set up its own loggers,
+    # and the tests (no server start) don't write log files.
+    logging_setup.setup_logging()
     yield
     storage.close()
 

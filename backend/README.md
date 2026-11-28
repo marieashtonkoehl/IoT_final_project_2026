@@ -24,7 +24,9 @@ Endpoints, messages and measurements → [docs/architecture.md](../docs/architec
 | `app/models.py` | Pydantic models: the JSON the API accepts and returns (as in `docs/data-model.md`) |
 | `app/rules.py` | Cooldown, daily cap (Europe/Madrid day) and presses-per-plant decisions |
 | `app/storage.py` | Writes presses and readings to InfluxDB and reads them back (last accepted press, presses today, progress count). Also has a small in-memory store used by the tests |
-| `app/config.py` | Reads `STATION_ID`, `PRESS_COOLDOWN_SECONDS`, `DAILY_PRESS_CAP`, `PRESSES_PER_PLANT`, `MAX_FUTURE_SKEW_SECONDS` and `DB_URL` / `DB_ORG` / `DB_BUCKET` / `DB_TOKEN` from the repo-root `.env` |
+| `app/config.py` | Reads `STATION_ID`, `PRESS_COOLDOWN_SECONDS`, `DAILY_PRESS_CAP`, `PRESSES_PER_PLANT`, `MAX_FUTURE_SKEW_SECONDS`, `DB_URL` / `DB_ORG` / `DB_BUCKET` / `DB_TOKEN`, `API_HOST` / `API_PORT` and `LOG_DIR` from the repo-root `.env` |
+| `app/__main__.py` | `python -m app`: starts the server with `API_HOST` / `API_PORT` from `.env`. Used by the systemd service |
+| `app/logging_setup.py` | Log to the console and to `logs/backend.log` (rotated at 1 MB, 5 old files). Runs once at start-up |
 | `tests/` | pytest tests |
 
 Endpoints so far: `GET /health`, `POST /presses`, `POST /readings`, `GET /status`. Presses and readings are stored in InfluxDB. Not done yet: settings from the database (#27), rewards (#41) and MQTT (#28, #34). Look for `TODO(InfluxDB)` and `TODO(MQTT)` in `app/main.py`.
@@ -50,7 +52,18 @@ All commands start in the **repo root** (`IoT_final_project_2026/`).
 
    The back end needs **InfluxDB** for `/presses`, `/readings` and `/status` (see [Run on the Pi with InfluxDB](#run-on-the-pi-with-influxdb)). Without it, those endpoints answer `503`; `/health`, `/docs` and the web page still work.
 
-4. Start the server by hand on port 8000:
+4. Start the server by hand:
+
+   ```bash
+   cd backend
+   python -m app
+   ```
+
+   - Host and port come from `API_HOST` and `API_PORT` in `.env` (default `0.0.0.0` and `8000`). This is the same command the systemd service uses.
+   - `API_HOST=0.0.0.0` lets other computers on the network reach it (e.g. your laptop → the Pi). Use `127.0.0.1` to allow only the same machine.
+   - Stop it with `Ctrl+C`.
+
+   For development, with automatic restart when you save a file:
 
    ```bash
    cd backend
@@ -58,9 +71,12 @@ All commands start in the **repo root** (`IoT_final_project_2026/`).
    ```
 
    - `app.main:app` = "in the file `app/main.py`, use the object called `app`".
-   - `--host 0.0.0.0` lets other computers on the network reach it (e.g. your laptop → the Pi). Use `--host 127.0.0.1` to allow only the same machine.
-   - `--reload` restarts the server when you save a file. Only for development.
-   - Stop it with `Ctrl+C`.
+   - Here `--host` / `--port` are used, not the values in `.env`.
+   - `--reload`: only for development, not on the running station.
+
+   Both ways also write the log to `logs/backend.log` in the repo root (`LOG_DIR` in `.env`).
+
+   On the Pi the back end runs as a systemd service (starts at boot, restarts on crash): [deploy/README.md → Start everything after reboot](../deploy/README.md#start-everything-after-reboot-issue-37).
 
 5. Open in a browser:
 
@@ -112,7 +128,7 @@ All commands start in the **repo root** (`IoT_final_project_2026/`).
    docker exec influxdb influx query 'from(bucket: "pollinator") |> range(start: -1h) |> filter(fn: (r) => r._measurement == "presses")'
    ```
 
-5. Restart the back end (`Ctrl+C`, start again) and open <http://localhost:8000/status>: `count` is the same as before the restart.
+5. Restart the back end (`Ctrl+C`, start again; as a service: `sudo systemctl restart pollinator-backend`) and open <http://localhost:8000/status>: `count` is the same as before the restart.
 
 If something is wrong, the endpoints answer `503` with a message saying why:
 

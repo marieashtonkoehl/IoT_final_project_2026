@@ -1,0 +1,19 @@
+[Unit]
+Description=Pollinator Station back end, FastAPI (#37)
+# Start after Docker, but don't require it: the back end connects to InfluxDB
+# only on the first request, so it also starts fine while InfluxDB and
+# Mosquitto are not ready yet.
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=haem
+WorkingDirectory=/home/haem/IoT_final_project_2026/backend
+# python -m app = backend/app/__main__.py: reads API_HOST / API_PORT from .env
+ExecStart=/home/haem/IoT_final_project_2026/.venv/bin/python -u -m app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
