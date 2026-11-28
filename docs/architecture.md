@@ -13,7 +13,7 @@ flowchart LR
 
     subgraph DEV["Device"]
       direction TB
-      SENS["Sensors (Grove)<br/>button, PIR, temp & humidity,<br/>light, soil moisture, barometer,<br/>SGP30 (VOC + eCO2)"]
+      SENS["Sensors (Grove)<br/>button, ultrasonic distance, temp & humidity,<br/>light, soil moisture, barometer,<br/>SGP30 (VOC + eCO2)"]
       ACT["Actuators<br/>LED bar, servo latch"]
       DS["Device script<br/>Python · device/ · systemd"]
       PS["Pi status script<br/>scripts/ · cron, every 5 min"]
@@ -93,7 +93,7 @@ Used by the device script:
 | Method | Path | What it does |
 |---|---|---|
 | POST | `/presses` | One button press with all readings (issue #26). Returns result and progress |
-| POST | `/readings` | Timed sensor readings and PIR count |
+| POST | `/readings` | Timed sensor readings and passer-by count |
 
 Used by the web page (login required, except `/health`):
 
@@ -105,7 +105,7 @@ Used by the web page (login required, except `/health`):
 | GET | `/conditions` | Latest value of every sensor + good / fair / poor level (issue #32) |
 | GET | `/presses/summary?group=day\|hour&from=&to=` | Presses per day or per hour of day, by result |
 | GET | `/history/{field}?from=&to=&every=` | Time series for one sensor field (e.g. `temperature_c`), averaged per `every` (e.g. `15m`) |
-| GET | `/footfall?from=&to=` | PIR counts per interval |
+| GET | `/footfall?from=&to=` | Passer-by counts per interval |
 | GET | `/rewards?from=&to=` | Unlocks: time, trigger, presses in cycle |
 | GET | `/pi-status` | Latest Pi health: CPU temperature, load, disk |
 | GET | `/report` | Averages, medians, trends (issue #44) |
@@ -120,7 +120,7 @@ Used by the web page (login required, except `/health`):
 
 1. A visitor presses the button.
 2. The device script debounces the button.
-3. The device script reads all sensors at that moment and adds the PIR count of the last 10 minutes.
+3. The device script reads all sensors at that moment and adds the passer-by count of the last 10 minutes.
 4. It sends one JSON message with `POST /presses` to FastAPI.
 5. The back end reads the current settings (newest `settings` point) and checks the rules:
    - inside the cooldown → `cooldown`
@@ -158,4 +158,4 @@ Commands use QoS 1, so the device may receive the same command twice. Each comma
 |---|---|---|
 | Map library | Leaflet + OpenStreetMap (planned) | #46 |
 | Alert channel | Telegram or ntfy | #42 |
-| Edge AI | Flag suspicious press bursts (presses vs PIR footfall), model from Lab 6. Runs in the device script or the back end | #48 |
+| Edge AI | Flag suspicious press bursts (presses vs footfall), model from Lab 6. Runs in the device script or the back end | #48 |

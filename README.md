@@ -26,7 +26,7 @@ Every press is stored together with the conditions at that moment — temperatur
 - **For visitors: no app, no account, no screen**: one button, the LED bar and a printed info panel.
 - **For operators and partners (Ayuntamiento)**: a web page with login: charts, station status, map, settings and manual locker opening.
 - **Fair use**: a cooldown between presses and a daily cap stop one person from emptying the lockers.
-- **Privacy**: no camera or microphone; the motion sensor only counts movements.
+- **Privacy**: no camera or microphone; the distance sensor only counts people walking past.
 
 ## System overview
 
@@ -73,7 +73,7 @@ Three parts:
 | Type | Component | Interface | Used for |
 |---|---|---|---|
 | Sensor | Large LED push button | Digital GPIO | Registers a pollinator sighting |
-| Sensor | PIR motion sensor | Digital GPIO | Counts passers-by (checks whether press numbers are realistic) |
+| Sensor | Ultrasonic distance sensor | Digital GPIO | Counts passers-by (checks whether press numbers are realistic) |
 | Sensor | Temperature & humidity | I2C / digital *(check model)* | Conditions at each press |
 | Sensor | Light | Analogue (HAT ADC) | Sun / shade at each press |
 | Sensor | Barometer | I2C | Air pressure → weather trend |
