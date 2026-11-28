@@ -28,6 +28,9 @@ STATUS = {
     "online": True,
     "locker": "open",
 }
+# The REAL last will of station.py: set once at connect time, so no
+# timestamp and no locker.
+LAST_WILL = {"station_id": "deusto-ria-01", "online": False}
 PI_HEALTH = {
     "station_id": "deusto-ria-01",
     "timestamp": "2026-11-20T12:00:00Z",
@@ -176,12 +179,49 @@ def test_status_is_shown_in_get_status(client):
 
 def test_status_message_that_arrived_last_wins(client):
     send(STATUS_TOPIC, STATUS)
-    # Last will: older timestamp (fixed when the device connected), arrives later.
+    # Older timestamp, but arrives later: still wins.
     send(STATUS_TOPIC, {**STATUS, "timestamp": "2026-11-20T08:00:00Z", "online": False})
 
     body = client.get("/status").json()
     assert body["online"] is False
     assert body["status_time"] == "2026-11-20T08:00:00Z"
+
+
+def test_last_will_after_status_keeps_locker_and_uses_receive_time(client, caplog):
+    send(STATUS_TOPIC, STATUS)  # online, locker open
+    with caplog.at_level(logging.INFO):
+        send(STATUS_TOPIC, LAST_WILL)
+
+    body = client.get("/status").json()
+    assert body["online"] is False
+    assert body["locker"] == "open"  # last known value
+    assert body["status_time"] == "2026-12-01T12:00:00Z"  # receive time (TEST_NOW)
+    assert "without timestamp/locker (last will?)" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_last_will_without_earlier_status(client):
+    send(STATUS_TOPIC, LAST_WILL)
+
+    body = client.get("/status").json()
+    assert body["online"] is False
+    assert body["locker"] is None  # never known
+    assert body["status_time"] == "2026-12-01T12:00:00Z"
+
+
+def test_status_with_null_timestamp_and_locker_is_like_missing(client):
+    send(STATUS_TOPIC, {**LAST_WILL, "timestamp": None, "locker": None})
+    assert mqtt.get_station_status()["online"] is False
+
+
+def test_full_status_after_last_will_replaces_it(client):
+    send(STATUS_TOPIC, LAST_WILL)
+    send(STATUS_TOPIC, {**STATUS, "locker": "locked"})
+
+    body = client.get("/status").json()
+    assert body["online"] is True
+    assert body["locker"] == "locked"
+    assert body["status_time"] == "2026-11-20T11:58:13Z"  # its own timestamp
 
 
 def test_online_true_sends_led_level_again(client, broker):
@@ -198,6 +238,7 @@ def test_online_true_sends_led_level_again(client, broker):
 
 def test_online_false_sends_nothing(broker):
     send(STATUS_TOPIC, {**STATUS, "online": False})
+    send(STATUS_TOPIC, LAST_WILL)
     assert broker.published == []
 
 
@@ -254,7 +295,10 @@ BAD_MESSAGES = [
     pytest.param(STATUS_TOPIC, b"\xff\xfe", id="status-not-utf8"),
     pytest.param(STATUS_TOPIC, {**STATUS, "locker": "half-open"}, id="status-bad-locker"),
     pytest.param(STATUS_TOPIC, {k: v for k, v in STATUS.items() if k != "online"},
-                 id="status-missing-field"),
+                 id="status-missing-online"),
+    pytest.param(STATUS_TOPIC, {"station_id": "deusto-ria-01"}, id="status-only-station-id"),
+    pytest.param(STATUS_TOPIC, {**LAST_WILL, "station_id": "other-01"},
+                 id="last-will-other-station"),
     pytest.param(STATUS_TOPIC, {**STATUS, "battery": 3}, id="status-extra-field"),
     pytest.param(STATUS_TOPIC, {**STATUS, "station_id": "other-01"}, id="status-other-station"),
     pytest.param(STATUS_TOPIC, {**STATUS, "timestamp": "2026-12-01T12:06:00Z"},

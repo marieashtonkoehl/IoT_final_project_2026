@@ -67,13 +67,16 @@ class StationMessage(BaseModel):
 
     @field_validator("timestamp")
     @classmethod
-    def timestamp_in_utc(cls, value: datetime) -> datetime:
+    def timestamp_in_utc(cls, value: Optional[datetime]) -> Optional[datetime]:
         """Make every timestamp a UTC time.
 
         "...Z" already is UTC. A timestamp without a time zone is taken as UTC.
         One with another offset (e.g. +01:00) is converted to UTC.
         This way the rules can always compare timestamps safely.
+        None only gets here for StationStatusIn (optional timestamp), kept as is.
         """
+        if value is None:
+            return None
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
@@ -132,11 +135,17 @@ LockerValue = Literal["locked", "open"]
 class StationStatusIn(StationMessage):
     """Topic pollinator/<station_id>/status: device script online? locker open?
 
-    Also the device script's MQTT last will (then "online": false).
+    Also the device script's MQTT last will: {"station_id", "online": false}
+    only. The will is set once at connect time, so it has no timestamp and no
+    locker. Both are optional here; mqtt.py fills them in (receive time, last
+    known locker).
     """
 
+    timestamp: Optional[datetime] = Field(
+        None, description="When it happened (UTC). Missing in the last will."
+    )
     online: bool
-    locker: LockerValue
+    locker: Optional[LockerValue] = None
 
 
 class PiHealthIn(StationMessage):
@@ -217,7 +226,9 @@ class StatusOut(BaseModel):
         description="Plant cupboard: locked / open, or null if no status yet."
     )
     status_time: Optional[datetime] = Field(
-        description="Timestamp of the newest status message (UTC), or null if none yet."
+        description="Timestamp of the newest status message, or the time the back end "
+        "received it if the message had none (e.g. the device's last will). "
+        "UTC, or null if no status yet."
     )
 
 

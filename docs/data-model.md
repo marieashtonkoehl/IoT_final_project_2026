@@ -109,7 +109,21 @@ Station status (on start, on every change):
 { "station_id": "deusto-ria-01", "timestamp": "2026-11-20T11:58:13Z", "online": true, "locker": "open" }
 ```
 
-`locker` is `locked` or `open`. Last will (sent by the broker if the device script disconnects): same topic, `"online": false`.
+`locker` is `locked` or `open`.
+
+Last will (sent by the broker if the device script disconnects without saying goodbye, e.g. crash or power loss): same topic, retained:
+
+```json
+{ "station_id": "deusto-ria-01", "online": false }
+```
+
+The last will is set once, when the device script connects, so it cannot carry a current timestamp or locker state. That is why `timestamp` and `locker` are **optional** in status messages (only there: all other messages must have a `timestamp`). `station_id` and `online` are always required. When they are missing, the back end:
+
+- uses the time it **received** the message (UTC, whole seconds) as `status_time`,
+- keeps the **last known** `locker` value (or `null` if it has not received one since it started),
+- logs this at INFO level.
+
+Note: because the will is retained, a back end that restarts after the device went offline gets the will again from the broker, and `status_time` is then the back end's start time, not the time the device went offline.
 
 Pi health (every 5 min, from cron):
 

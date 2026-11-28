@@ -175,6 +175,10 @@ def _parse(model: Type[Message], message_topic: str, payload: bytes) -> Optional
         )
         return None
 
+    # No timestamp (status last will): nothing to check, receive time is used.
+    if message.timestamp is None:
+        return message
+
     ahead = rules.seconds_ahead(message.timestamp, now_utc())
     if ahead > settings.max_future_skew_seconds:
         log.warning(
@@ -193,16 +197,23 @@ def _handle_status(payload: bytes) -> None:
     if status is None:
         return
 
-    # The message that ARRIVED last wins, even if its timestamp is older:
-    # the last will ("online": false) is fixed when the device connects, so
-    # its timestamp is older than the status changes sent after it.
+    # The last will is fixed when the device connects: only station_id and
+    # "online": false, no timestamp, no locker. Fill the gaps here.
+    if status.timestamp is None or status.locker is None:
+        log.info("MQTT: station status without timestamp/locker (last will?), using receive time")
+    # Whole seconds, like the timestamps the device sends.
+    received = now_utc().replace(microsecond=0)
+
+    # The message that ARRIVED last wins, even if its timestamp is older.
     with _status_lock:
+        last_locker = _status["locker"] if _status is not None else None
         _status = {
             "online": status.online,
-            "locker": status.locker,
-            "timestamp": status.timestamp,
+            "locker": status.locker if status.locker is not None else last_locker,
+            "timestamp": status.timestamp if status.timestamp is not None else received,
         }
-    log.info("MQTT: station status online=%s locker=%s", status.online, status.locker)
+        locker = _status["locker"]
+    log.info("MQTT: station status online=%s locker=%s", status.online, locker)
 
     if status.online:
         # Device script just started or reconnected. Commands are not
