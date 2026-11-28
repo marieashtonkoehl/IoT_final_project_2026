@@ -25,7 +25,7 @@ General rules:
 | `eco2_ppm` | estimated CO2 (eCO2) from the SGP30, ppm. Calculated by the sensor from its gas readings, not a real CO2 measurement |
 | `light_pct` | percent of sensor range, 0 = dark, 100 = full sun (to confirm) |
 | `soil_moisture_pct` | percent, 0 = dry, 100 = wet (calibration to confirm, issue #20) |
-| `motion_count_10min` | number of PIR triggers in the last 10 minutes |
+| `motion_count_10min` | number of passers-by counted by the ultrasonic sensor in the last 10 minutes |
 
 The SGP30 (I2C, issue #30) is an indoor air-quality sensor, so outdoor values are indicative.
 
@@ -161,7 +161,7 @@ InfluxDB 2, in Docker on the Pi. It is the only database.
 
 | Measurement | Tags | Fields (type, unit) | Written when |
 |---|---|---|---|
-| `footfall` | `station_id` | `motion_count` (int, count)<br/>`interval_s` (int, seconds) | Every `POST /readings` that includes a PIR count; interval from `.env` (set after Sprint 1 tests) |
+| `footfall` | `station_id` | `motion_count` (int, count)<br/>`interval_s` (int, seconds) | Every `POST /readings` that includes a passer-by count; interval from `.env` (set after Sprint 1 tests) |
 
 ### `rewards`
 
@@ -206,7 +206,7 @@ Not yet defined: external weather and air quality data (issues #36, #47), edge A
 ## Retention and privacy
 
 - No personal data about visitors. No camera, no microphone, no names, no IP addresses, no phone IDs.
-- The PIR sensor only gives counts. It cannot tell who walked past.
+- The ultrasonic sensor only gives counts. It cannot tell who walked past.
 - A press stores only the time and the sensor values.
 - No names or usernames are stored. The action log records what and when, not who.
 - Retention: the bucket keeps all data ("never" expires) for now.
