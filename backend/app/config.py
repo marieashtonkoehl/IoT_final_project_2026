@@ -57,6 +57,10 @@ class Settings:
     # settings are printed or appear in an error message.
     db_token: str = field(repr=False)
 
+    # MQTT broker (Mosquitto, runs in Docker on the Pi, port bound to 127.0.0.1)
+    broker_host: str = "localhost"
+    broker_port: int = 1883
+
 
 def load_settings() -> Settings:
     """Build a Settings object from the environment (and .env)."""
@@ -71,6 +75,8 @@ def load_settings() -> Settings:
         db_bucket=_get_str("DB_BUCKET", "pollinator"),
         # No default: the token only exists in .env on the Pi.
         db_token=_get_str("DB_TOKEN", ""),
+        broker_host=_get_str("BROKER_HOST", "localhost"),
+        broker_port=_get_int("BROKER_PORT", 1883),
     )
 
 

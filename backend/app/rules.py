@@ -71,6 +71,15 @@ def decide_press(
     return "accepted"
 
 
+def seconds_ahead(timestamp: datetime, now_utc: datetime) -> float:
+    """How many seconds `timestamp` is ahead of `now_utc` (negative = in the past).
+
+    Used by the REST endpoints and by the MQTT messages, so both refuse
+    timestamps from the future in the same way (MAX_FUTURE_SKEW_SECONDS).
+    """
+    return (timestamp - now_utc).total_seconds()
+
+
 def is_plant_earned(count: int, presses_per_plant: int) -> bool:
     """True when the cycle is full and the cupboard should unlock."""
     return count >= presses_per_plant

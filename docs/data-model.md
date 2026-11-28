@@ -88,6 +88,8 @@ SGP30 (issue #30): the device script reads it every 1 s, because the sensor need
 
 The broker (Mosquitto) runs in Docker on the Pi. Its port is bound to `127.0.0.1`. MQTT is used only for station status, Pi health and commands. Presses and readings use REST.
 
+Client IDs: `pollinator-backend` (back end), `pollinator-device` (device script), `pollinator-pi-health` (Pi status script). Each must be different: the broker drops an existing connection when a second client connects with the same ID.
+
 ### Topics
 
 Pattern: `pollinator/<station_id>/<type>`.
@@ -107,7 +109,21 @@ Station status (on start, on every change):
 { "station_id": "deusto-ria-01", "timestamp": "2026-11-20T11:58:13Z", "online": true, "locker": "open" }
 ```
 
-`locker` is `locked` or `open`. Last will (sent by the broker if the device script disconnects): same topic, `"online": false`.
+`locker` is `locked` or `open`.
+
+Last will (sent by the broker if the device script disconnects without saying goodbye, e.g. crash or power loss): same topic, retained:
+
+```json
+{ "station_id": "deusto-ria-01", "online": false }
+```
+
+The last will is set once, when the device script connects, so it cannot carry a current timestamp or locker state. That is why `timestamp` and `locker` are **optional** in status messages (only there: all other messages must have a `timestamp`). `station_id` and `online` are always required. When they are missing, the back end:
+
+- uses the time it **received** the message (UTC, whole seconds) as `status_time`,
+- keeps the **last known** `locker` value (or `null` if it has not received one since it started),
+- logs this at INFO level.
+
+Note: because the will is retained, a back end that restarts after the device went offline gets the will again from the broker, and `status_time` is then the back end's start time, not the time the device went offline.
 
 Pi health (every 5 min, from cron):
 
@@ -118,17 +134,19 @@ Pi health (every 5 min, from cron):
 LED command:
 
 ```json
-{ "command_id": "c-000123", "timestamp": "2026-11-20T11:42:06Z", "level": 7, "max": 10 }
+{ "command_id": "c-3f2b9c1e8d0a4b7c9e6f5a4d3c2b1a09", "timestamp": "2026-11-20T11:42:06Z", "level": 7, "max": 10 }
 ```
 
 Unlock command:
 
 ```json
-{ "command_id": "c-000124", "timestamp": "2026-11-20T11:58:12Z", "trigger": "target" }
+{ "command_id": "c-8a7b6c5d4e3f42a1b0c9d8e7f6a5b4c3", "timestamp": "2026-11-20T11:58:12Z", "trigger": "target" }
 ```
 
 - `trigger` is `target` or `manual`.
-- `command_id` format (to confirm). The device ignores a `command_id` it has already handled, because QoS 1 can deliver a command twice.
+- `command_id` is `"c-"` + a random UUID4 in hex (32 characters). The device ignores a `command_id` it has already handled, because QoS 1 can deliver a command twice. A random ID instead of a counter, so the IDs stay unique after a back end restart.
+- The back end sends `cmd/led` with the current level again when it receives status `"online": true` (device script started or reconnected), because commands are not retained.
+- While the broker is down, commands are skipped (not queued): the back end logs it and the press is still stored and answered normally. A late unlock could open the cupboard when nobody is there.
 - `level` is absolute, so a repeated LED command does no harm. An unlock command while the locker is already open does nothing.
 - After an unlock, the device script locks the latch again after 60 s and publishes status `locker: locked`.
 - When the device script starts, it always moves the latch to locked first and publishes `locker: locked`, so the locker cannot stay open after a crash or power loss.
@@ -150,6 +168,7 @@ InfluxDB 2, in Docker on the Pi. It is the only database.
 - On start, the back end restores the current progress from `progress_count` of the newest `presses` point. The press that earns a plant is stored with `progress_count` = `presses_per_plant` (e.g. 10), so a restored value `>= presses_per_plant` means the new cycle starts at 0.
 - The daily cap counts `accepted` presses since midnight Europe/Madrid (the query converts that local midnight to UTC).
 - A sensor value that was `null` in the JSON is missing from the point (see general rules).
+- The tag `result` has the same name as the `result` column InfluxDB adds to every query answer. So the back end's queries end with `|> keep(columns: ["_time", "_value"])` and the tag never reaches the answer (otherwise: a "duplicated names" warning on every query, and `record.values["result"]` is ambiguous). To read the tag in Python, rename it in Flux first (e.g. `|> rename(columns: {result: "press_result"})`) and keep the new name, or use `record.row`.
 
 ### `environment`
 
